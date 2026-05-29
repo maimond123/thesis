@@ -420,6 +420,14 @@ let isCaptureEnabled: () => boolean = () => true;
 
 const captureExtension = keystrokeCaptureExtension((raw) => {
   if (!isCaptureEnabled()) return;
+  if (session.state !== 'recording') {
+    // Doc changed but we aren't recording — the keystroke goes into the shared
+    // Y.Text (and any connected peers see it) but does NOT get signed into a
+    // chain. Surface a non-blocking nudge so the writer doesn't realise too
+    // late that their authorship wasn't captured.
+    showStartSessionToast();
+    return;
+  }
   session.handleEvent(raw);
 });
 
@@ -498,7 +506,43 @@ session.onStateChange = (state) => {
   startBtn.disabled = state === 'recording';
   endBtn.disabled = state !== 'recording';
   exportBtn.disabled = state !== 'ended' && lastProof === null;
+
+  if (state === 'recording') dismissStartToast();
 };
+
+// ─── "Start a session before you write" toast ─────────────────────
+// Triggered by the keystroke capture extension when the doc changes while
+// no session is recording (e.g. right after a manual End Session). The toast
+// auto-dismisses after a few seconds, and instantly when a session starts.
+
+let startToastEl: HTMLDivElement | null = null;
+let startToastTimer: number | null = null;
+
+function showStartSessionToast(): void {
+  if (startToastEl || session.state === 'recording') return;
+  const el = document.createElement('div');
+  el.className = 'toast toast-warning';
+  el.innerHTML = `
+    <span class="toast-text">No session is recording — your keystrokes aren't being signed.</span>
+    <button class="btn btn-primary toast-action" type="button">Start session</button>
+  `;
+  el.querySelector<HTMLButtonElement>('.toast-action')!.addEventListener('click', () => {
+    startBtn.click();
+    dismissStartToast();
+  });
+  document.body.appendChild(el);
+  startToastEl = el;
+  startToastTimer = window.setTimeout(dismissStartToast, 8000);
+}
+
+function dismissStartToast(): void {
+  startToastEl?.remove();
+  startToastEl = null;
+  if (startToastTimer !== null) {
+    clearTimeout(startToastTimer);
+    startToastTimer = null;
+  }
+}
 
 // ─── Button handlers ───────────────────────────────────────────────
 
@@ -674,9 +718,18 @@ loadSessionBtn.addEventListener('click', async () => {
       lastCloudOk = true;
       startAutoExportTimer();
       console.log(`[thesis] Recovered session with ${session.getEventCount()} events`);
+    } else {
+      // No prior session for this file — auto-start a fresh one so a
+      // collaborator who lands on the URL and starts typing has their
+      // authorship signed from the first keystroke, without needing to
+      // remember to click Start Session first.
+      await session.start(() => yText.toString());
+      lastCloudOk = true;
+      startAutoExportTimer();
+      console.log(`[thesis] Auto-started fresh session for #${SLICE1_FILE_ID}`);
     }
 
-    // Enable capture now that recovery is done
+    // Enable capture now that recovery / auto-start is done
     setCaptureEnabled(true);
   } catch (err) {
     console.error('[thesis] Recovery failed:', err);

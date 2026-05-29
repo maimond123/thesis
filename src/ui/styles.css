@@ -300,6 +300,42 @@ html, body {
   font-style: italic;
 }
 
+/* ─── Toasts (non-blocking nudges) ───────────────────────────── */
+
+.toast {
+  position: fixed;
+  bottom: 56px;            /* clear of the status bar */
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+  z-index: 1000;
+  max-width: min(92vw, 520px);
+  animation: toast-in 0.25s ease;
+}
+
+.toast-warning {
+  border-color: var(--warning);
+}
+
+.toast-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
+@keyframes toast-in {
+  from { transform: translate(-50%, 18px); opacity: 0; }
+  to   { transform: translate(-50%, 0);    opacity: 1; }
+}
+
 .identity-card {
   display: flex;
   align-items: center;
