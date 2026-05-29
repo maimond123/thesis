@@ -36,6 +36,27 @@ window.addEventListener('hashchange', () => {
   if (readFileIdFromHash() !== SLICE1_FILE_ID) window.location.reload();
 });
 
+// ─── Theme (dark / light) ─────────────────────────────────────────
+// Initial theme: stored preference > OS preference > dark. The toggle in the
+// header flips this and persists. CSS variables under `[data-theme="light"]`
+// override the defaults.
+
+type Theme = 'dark' | 'light';
+const THEME_KEY = 'thesis-theme';
+
+function readInitialTheme(): Theme {
+  const stored = localStorage.getItem(THEME_KEY) as Theme | null;
+  if (stored === 'dark' || stored === 'light') return stored;
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function applyTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+}
+
+applyTheme(readInitialTheme());
+
 // ─── Identity bootstrap (top-level await) ─────────────────────────
 // Identity must exist before any session can record. First run prompts for a handle.
 
@@ -114,6 +135,24 @@ const headerRight = document.createElement('div');
 headerRight.className = 'header-right';
 header.appendChild(headerRight);
 app.appendChild(header);
+
+// Theme toggle button (left of the identity badge).
+const themeToggle = document.createElement('button');
+themeToggle.className = 'theme-toggle';
+themeToggle.type = 'button';
+themeToggle.title = 'Toggle light / dark theme';
+function syncThemeToggleIcon(): void {
+  const isLight = document.documentElement.dataset.theme === 'light';
+  themeToggle.textContent = isLight ? '☾' : '☼';   // moon (dark mode option) / sun (light mode option)
+  themeToggle.setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
+}
+syncThemeToggleIcon();
+themeToggle.addEventListener('click', () => {
+  const next: Theme = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  syncThemeToggleIcon();
+});
+headerRight.appendChild(themeToggle);
 
 identityUI.mountBadge(headerRight);
 

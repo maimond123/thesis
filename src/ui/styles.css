@@ -1,7 +1,8 @@
-:root {
+:root, [data-theme="dark"] {
   --bg: #0f0f0f;
   --bg-surface: #1a1a1a;
   --bg-elevated: #242424;
+  --bg-paper: #141414;          /* writing-pad surface, slightly off from --bg */
   --border: #333;
   --text: #e0e0e0;
   --text-muted: #888;
@@ -12,7 +13,23 @@
   --warning: #ffa726;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Iowan Old Style', 'Charter', 'Georgia', serif;
   --radius: 6px;
+}
+
+[data-theme="light"] {
+  --bg: #f5f3ee;                /* warm off-white, easier on the eye than pure white */
+  --bg-surface: #ffffff;
+  --bg-elevated: #ecebe5;
+  --bg-paper: #fbfaf6;          /* writing-pad surface */
+  --border: #d8d4c7;
+  --text: #1a1a1a;
+  --text-muted: #6b6660;
+  --accent: #0b62b3;
+  --accent-dim: #cfe1f1;
+  --success: #2f7d32;
+  --error: #b53a35;
+  --warning: #b67414;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -65,6 +82,33 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* ─── Theme toggle ───────────────────────────────────────────── */
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1;
+}
+
+.theme-toggle:hover {
+  background: #333;
+  border-color: var(--accent);
+}
+
+[data-theme="light"] .theme-toggle:hover {
+  background: var(--accent-dim);
 }
 
 /* ─── Backup nag banner ──────────────────────────────────────── */
@@ -351,17 +395,26 @@ html, body {
   display: flex;
 }
 
-/* ─── Editor ──────────────────────────────────────────────────── */
+/* ─── Editor (writing pad) ───────────────────────────────────── */
 
 .editor-container {
   flex: 1;
   overflow: auto;
+  background: var(--bg);
+  /* Centred reading column rather than full-width edge-to-edge text — closer
+     to how a thesis manuscript actually wants to be read & written. */
+  display: flex;
+  justify-content: center;
 }
 
 .editor-container .cm-editor {
   height: 100%;
-  font-family: var(--font-mono);
-  font-size: 14px;
+  width: 100%;
+  max-width: 880px;            /* book-like column */
+  font-family: var(--font-serif);
+  font-size: 17px;
+  line-height: 1.75;
+  background: var(--bg-paper) !important;
 }
 
 .editor-container .cm-editor .cm-scroller {
@@ -369,15 +422,21 @@ html, body {
 }
 
 .editor-container .cm-editor .cm-content {
-  padding: 16px;
+  padding: 56px 64px 160px;    /* generous breathing room top/sides + tall bottom gutter */
+  font-feature-settings: "kern" 1, "liga" 1;
 }
 
-.cm-editor {
-  background: var(--bg) !important;
+@media (max-width: 700px) {
+  .editor-container .cm-editor .cm-content {
+    padding: 32px 24px 120px;
+  }
+  .editor-container .cm-editor {
+    font-size: 16px;
+  }
 }
 
 .cm-editor .cm-gutters {
-  background: var(--bg-surface) !important;
+  background: var(--bg-paper) !important;
   border-right: 1px solid var(--border) !important;
   color: var(--text-muted) !important;
 }
@@ -615,13 +674,16 @@ html, body {
   background: var(--text-muted);
 }
 
-/* Author color palette — used by both Replay swatches and decorated characters. */
-.cm-author-0, .replay-legend-swatch.cm-author-0 { background: rgba(79, 195, 247, 0.22); color: #ddedf3; }
-.cm-author-1, .replay-legend-swatch.cm-author-1 { background: rgba(255, 167, 38, 0.22); color: #f3e6d8; }
-.cm-author-2, .replay-legend-swatch.cm-author-2 { background: rgba(174, 213, 129, 0.22); color: #e6f0d8; }
-.cm-author-3, .replay-legend-swatch.cm-author-3 { background: rgba(240, 98, 146, 0.22); color: #f3d8e0; }
-.cm-author-4, .replay-legend-swatch.cm-author-4 { background: rgba(186, 104, 200, 0.22); color: #ecd8f3; }
-.cm-author-5, .replay-legend-swatch.cm-author-5 { background: rgba(255, 213, 79, 0.22); color: #f3ecd8; }
+/* Author color palette — used by both Replay swatches and decorated characters.
+   Decorated characters use background tint only and inherit text color so the
+   marks work cleanly in both light and dark themes. */
+.cm-author { color: inherit; }
+.cm-author-0 { background: rgba(79, 195, 247, 0.20); }
+.cm-author-1 { background: rgba(255, 167, 38, 0.20); }
+.cm-author-2 { background: rgba(174, 213, 129, 0.20); }
+.cm-author-3 { background: rgba(240, 98, 146, 0.20); }
+.cm-author-4 { background: rgba(186, 104, 200, 0.20); }
+.cm-author-5 { background: rgba(255, 213, 79, 0.20); }
 
 /* Make legend swatches solid (not the semi-transparent version) for visibility. */
 .replay-legend-swatch.cm-author-0 { background: #4fc3f7; }
