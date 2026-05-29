@@ -1,6 +1,6 @@
 import type { ProofFile } from '../types';
 import { importFromFile } from '../export/importer';
-import { verifyProof, type VerificationResult } from './verifier';
+import { verifyProof, type VerificationResult, DELAY_BUCKETS, type PatternAnalysis } from './verifier';
 
 export class VerifyUI {
   private container: HTMLElement;
@@ -129,7 +129,7 @@ export class VerifyUI {
       this.addCheck('info', `Authors (${proof.session.authors.length})`, lines.join('\n'));
     }
 
-    // Human pattern analysis
+    // Human pattern analysis — summary line then visual profile.
     const hp = checks.humanPatterns;
     this.addCheck(
       hp.appearsHuman ? 'pass' : 'info',
@@ -140,6 +140,7 @@ export class VerifyUI {
       `Corrections: ${(hp.correctionRatio * 100).toFixed(1)}% | ` +
       `Thinking pauses: ${hp.longPauses}`
     );
+    this.renderHumannessProfile(hp);
 
     // Session info
     this.addCheck(
@@ -167,4 +168,83 @@ export class VerifyUI {
 
     this.resultsEl.appendChild(el);
   }
+
+  private renderHumannessProfile(hp: PatternAnalysis): void {
+    if (hp.totalEvents < 2) return;
+
+    const card = document.createElement('div');
+    card.className = 'humanness-card';
+
+    // \u2500\u2500 Inter-keystroke gap histogram \u2500\u2500
+    const histTitle = document.createElement('div');
+    histTitle.className = 'humanness-section-title';
+    histTitle.textContent = 'Inter-keystroke gap distribution';
+    card.appendChild(histTitle);
+
+    const histDesc = document.createElement('div');
+    histDesc.className = 'humanness-section-sub';
+    histDesc.textContent = 'Human typing has wide variance \u2014 a tall single-bucket distribution is a tell for replay/scripted input.';
+    card.appendChild(histDesc);
+
+    const histRow = document.createElement('div');
+    histRow.className = 'humanness-histogram';
+    const maxCount = Math.max(1, ...hp.delayHistogram);
+    for (let i = 0; i < DELAY_BUCKETS.length; i++) {
+      const count = hp.delayHistogram[i];
+      const pct = (count / maxCount) * 100;
+      const col = document.createElement('div');
+      col.className = 'humanness-bar-col';
+      col.innerHTML = `
+        <div class="humanness-bar-value">${count}</div>
+        <div class="humanness-bar" style="height:${Math.max(2, pct)}%" title="${DELAY_BUCKETS[i].label}: ${count} events"></div>
+        <div class="humanness-bar-label">${escapeHtml(DELAY_BUCKETS[i].label)}</div>
+      `;
+      histRow.appendChild(col);
+    }
+    card.appendChild(histRow);
+
+    // \u2500\u2500 Paste timeline \u2500\u2500
+    const pasteTitle = document.createElement('div');
+    pasteTitle.className = 'humanness-section-title';
+    pasteTitle.style.marginTop = '20px';
+    pasteTitle.textContent = `Paste events (${hp.pasteSpikes.length})`;
+    card.appendChild(pasteTitle);
+
+    const pasteDesc = document.createElement('div');
+    pasteDesc.className = 'humanness-section-sub';
+    pasteDesc.textContent = hp.pasteSpikes.length === 0
+      ? 'No paste operations recorded \u2014 every character was typed.'
+      : 'Paste size and position in the session timeline. Large bulk pastes are the strongest anti-human signal.';
+    card.appendChild(pasteDesc);
+
+    if (hp.pasteSpikes.length > 0 && hp.sessionDurationMs > 0) {
+      const timeline = document.createElement('div');
+      timeline.className = 'humanness-paste-timeline';
+      const maxLen = Math.max(...hp.pasteSpikes.map((p) => p.length), 1);
+      const firstTs = hp.pasteSpikes[0].timestamp - (hp.pasteSpikes[0].timestamp - 0);
+      // Map each spike onto a 0-100 horizontal position.
+      // We use the session start (events[0].timestamp) as 0; we don't have
+      // that here directly, so derive from the spikes themselves.
+      const minT = Math.min(...hp.pasteSpikes.map((p) => p.timestamp));
+      const maxT = Math.max(...hp.pasteSpikes.map((p) => p.timestamp), firstTs + hp.sessionDurationMs);
+      const span = Math.max(1, maxT - minT);
+      for (const sp of hp.pasteSpikes) {
+        const left = ((sp.timestamp - minT) / span) * 100;
+        const heightPct = (sp.length / maxLen) * 100;
+        const spike = document.createElement('div');
+        spike.className = 'humanness-paste-spike';
+        spike.style.left = `${left}%`;
+        spike.style.height = `${Math.max(8, heightPct)}%`;
+        spike.title = `${sp.length} chars by ${sp.authorThumbprint.slice(0, 8)}\u2026`;
+        timeline.appendChild(spike);
+      }
+      card.appendChild(timeline);
+    }
+
+    this.resultsEl.appendChild(card);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 }

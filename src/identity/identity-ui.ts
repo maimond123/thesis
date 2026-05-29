@@ -102,6 +102,12 @@ export class IdentityUI {
     });
   }
 
+  // Public entry point: opens the manage panel. Used both by the badge click
+  // and the backup-nag banner's "Back up now" button.
+  openBackupFlow(): void {
+    this.openManagePanel();
+  }
+
   openManagePanel(): void {
     const overlay = createOverlay();
     const panel = document.createElement('div');
@@ -150,7 +156,7 @@ export class IdentityUI {
       downloadJson(`${self.handle}-public-identity.json`, bundle);
     });
 
-    panel.querySelector<HTMLButtonElement>('#backup-private')!.addEventListener('click', () => {
+    panel.querySelector<HTMLButtonElement>('#backup-private')!.addEventListener('click', async () => {
       const ok = window.confirm(
         'This file contains your PRIVATE KEY. Anyone with this file can sign as you.\n\n' +
         'Save it somewhere safe (encrypted disk, password manager) and never share it.\n\n' +
@@ -159,6 +165,7 @@ export class IdentityUI {
       if (!ok) return;
       const bundle = this.store.exportBackupBundle();
       downloadJson(`${self.handle}-PRIVATE-identity-backup.json`, bundle);
+      await this.store.markBackedUp();
       const warning = panel.querySelector<HTMLParagraphElement>('#backup-warning');
       if (warning) warning.style.display = 'none';
     });

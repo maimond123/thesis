@@ -11,6 +11,11 @@ export interface SelfIdentity {
   privateKey: JsonWebKey;
   thumbprint: string;
   createdAt: string;
+  // ISO timestamp of the last time the user successfully downloaded an identity
+  // backup. Null/undefined means they have never backed up — the UI nags them
+  // until they do, since losing browser storage with no backup means the chain
+  // becomes unrecoverable.
+  backedUpAt?: string | null;
 }
 
 export interface PublicIdentity {
@@ -164,6 +169,26 @@ export class IdentityStore {
       public: this.getSelfPublic(),
       private: self.privateKey,
     };
+  }
+
+  // Persist the fact that the user has just downloaded a backup so we can
+  // stop nagging them. Stored alongside the identity record itself.
+  async markBackedUp(): Promise<void> {
+    const self = this.getSelf();
+    self.backedUpAt = new Date().toISOString();
+    await idbPut('self', 'me', self);
+    this.self = self;
+    this.backupListeners.forEach((fn) => fn());
+  }
+
+  isBackedUp(): boolean {
+    return !!this.self?.backedUpAt;
+  }
+
+  private backupListeners: Set<() => void> = new Set();
+  onBackupStateChange(fn: () => void): () => void {
+    this.backupListeners.add(fn);
+    return () => this.backupListeners.delete(fn);
   }
 
   async restoreFromBackup(bundle: IdentityBundle): Promise<SelfIdentity> {

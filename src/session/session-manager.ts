@@ -74,18 +74,19 @@ export class SessionManager {
   }
 
   async hasRecoverableSession(): Promise<boolean> {
-    const saved = await loadSession();
+    const saved = await loadSession(this.fileId);
     return saved !== null;
   }
 
   async recover(getDocument: () => string, setDocument: (doc: string) => void): Promise<boolean> {
-    let saved = await loadSession();
+    let saved = await loadSession(this.fileId);
     if (!saved) {
       try {
-        const emergency = localStorage.getItem('thesis-emergency-save');
+        const emergencyKey = `thesis-emergency-save:${this.fileId}`;
+        const emergency = localStorage.getItem(emergencyKey);
         if (emergency) {
           saved = JSON.parse(emergency);
-          localStorage.removeItem('thesis-emergency-save');
+          localStorage.removeItem(emergencyKey);
         }
       } catch { /* ignore */ }
     }
@@ -201,7 +202,7 @@ export class SessionManager {
   }
 
   async start(getDocument: () => string): Promise<void> {
-    await clearSession();
+    await clearSession(this.fileId);
     this.getDocument = getDocument;
 
     const self = this.identityStore.getSelf();
@@ -261,9 +262,17 @@ export class SessionManager {
   }
 
   // Called when a chain message arrives from a peer over the live-sync channel.
-  // Lazily creates a mirror chain for the author on first event seen.
+  // Lazily creates a mirror chain for the author on first event seen, then
+  // verifies the incoming event before accepting it.
+  //
+  // Verification (B3): the event must (1) carry the claimed author's thumbprint,
+  // (2) line up sequentially with our current mirror head, (3) prev-link to it
+  // (or to the derived genesis on the very first event), and (4) the claimed
+  // hash must match what we recompute from the event's contents. Failure to
+  // meet any of these means the sender either has a stale view of the chain
+  // or is actively spoofing — either way we drop the event.
   async appendRemoteEvent(authorThumbprint: string, event: AuthoringEvent, coAuthor?: CoAuthorRef): Promise<void> {
-    if (authorThumbprint === this.metadata?.localAuthorThumbprint) return; // ignore echoes of own events
+    if (authorThumbprint === this.metadata?.localAuthorThumbprint) return;
 
     let mirror = this.mirrorChains.get(authorThumbprint);
     if (!mirror) {
@@ -272,19 +281,13 @@ export class SessionManager {
       this.mirrorChains.set(authorThumbprint, mirror);
     }
 
-    // Trust the event's hash from the source for now — full cryptographic mirror
-    // verification (recompute on receive, compare against sender's hash) is part
-    // of Task 11 (verifier multi-author).
-    const raw: RawEvent = {
-      timestamp: event.timestamp,
-      type: event.type,
-      from: event.from,
-      to: event.to,
-      inserted: event.inserted,
-      deleted: event.deleted,
-      cursorAfter: event.cursorAfter,
-    };
-    mirror.append(raw);
+    const result = await mirror.appendVerified(event);
+    if (!result.ok) {
+      console.warn(
+        `[thesis] rejected chain event from ${authorThumbprint.slice(0, 8)}…: ${result.reason} — ${result.detail}`,
+      );
+      return;
+    }
 
     if (coAuthor && !this.coAuthorIdentities.has(authorThumbprint)) {
       this.coAuthorIdentities.set(authorThumbprint, coAuthor);
@@ -367,7 +370,7 @@ export class SessionManager {
     this.metadata.endTime = new Date().toISOString();
     const proof = await this.buildProofFile(/* finalising */ true);
 
-    await clearSession();
+    await clearSession(this.fileId);
     this.setState('ended');
     return proof;
   }
@@ -497,7 +500,9 @@ export class SessionManager {
         anchors: this.anchors,
         document: this.getDocument(),
       });
-      localStorage.setItem('thesis-emergency-save', data);
+      // Emergency snapshot is also namespaced by fileId so a parallel tab on a
+      // different document doesn't overwrite ours.
+      localStorage.setItem(`thesis-emergency-save:${this.fileId}`, data);
       this.lastEmergencySaveAt = Date.now();
     } catch (err) {
       console.warn('[thesis] localStorage emergency save failed:', err);
