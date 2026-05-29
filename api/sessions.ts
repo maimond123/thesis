@@ -1,6 +1,8 @@
 import { put, list, del } from '@vercel/blob';
 
-export const config = { runtime: 'edge' };
+// Use the Node runtime so @vercel/blob's undici-based transport works. The
+// Edge runtime doesn't support node:stream / node:net which undici needs.
+export const config = { runtime: 'nodejs' };
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
