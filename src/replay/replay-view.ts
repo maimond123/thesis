@@ -40,6 +40,48 @@ export class ReplayView {
     this.progressFill.className = 'replay-progress-fill';
     progressWrap.appendChild(this.progressFill);
 
+    // Click + drag scrubbing — convert a clientX coordinate on the bar into a
+    // 0..1 fraction of the timeline and seek the engine to that event index.
+    // Reuses ReplayEngine.seekTo, which already replays every event up to the
+    // target index (including author-colour marks) before resuming playback.
+    const seekFromEvent = (e: MouseEvent) => {
+      if (!this.engine || this.engine.total === 0) return;
+      const rect = progressWrap.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const fraction = Math.max(0, Math.min(1, x / rect.width));
+      this.engine.seekTo(Math.round(fraction * this.engine.total));
+    };
+
+    let scrubbing = false;
+    progressWrap.addEventListener('mousedown', (e) => {
+      scrubbing = true;
+      seekFromEvent(e);
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (scrubbing) seekFromEvent(e);
+    });
+    window.addEventListener('mouseup', () => { scrubbing = false; });
+
+    // Keyboard niceties for when the bar (or speed buttons near it) is focused.
+    progressWrap.tabIndex = 0;
+    progressWrap.addEventListener('keydown', (e) => {
+      if (!this.engine) return;
+      if (e.key === 'ArrowLeft') {
+        this.engine.seekTo(Math.max(0, this.engine.current - (e.shiftKey ? 25 : 1)));
+        e.preventDefault();
+      } else if (e.key === 'ArrowRight') {
+        this.engine.seekTo(Math.min(this.engine.total, this.engine.current + (e.shiftKey ? 25 : 1)));
+        e.preventDefault();
+      } else if (e.key === 'Home') {
+        this.engine.seekTo(0);
+        e.preventDefault();
+      } else if (e.key === 'End') {
+        this.engine.seekTo(this.engine.total);
+        e.preventDefault();
+      }
+    });
+
     this.timeLabel = document.createElement('div');
     this.timeLabel.className = 'replay-time';
     this.timeLabel.textContent = '0 / 0';
