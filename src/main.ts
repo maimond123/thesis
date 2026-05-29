@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { createEditor } from './editor/setup';
 import { keystrokeCaptureExtension } from './editor/keystroke-plugin';
+import { mountFormatBar } from './editor/format-bar';
 import { SessionManager } from './session/session-manager';
 import { downloadProof } from './export/exporter';
 import { importFromFile } from './export/importer';
@@ -273,6 +274,10 @@ viewContainer.className = 'view-container';
 const editorPanel = document.createElement('div');
 editorPanel.className = 'view-panel active';
 editorPanel.id = 'editor-panel';
+
+// Format bar (Bold / Italic / Headings / Lists) lives between the toolbar
+// and the page so formatting actions are one click away.
+mountFormatBar(editorPanel, () => editorView);
 
 const editorContainer = document.createElement('div');
 editorContainer.className = 'editor-container';

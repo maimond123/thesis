@@ -590,63 +590,147 @@ html, body {
   display: flex;
 }
 
-/* ─── Editor (writing pad) ───────────────────────────────────── */
+/* ─── Editor (Google-Docs-like page) ─────────────────────────── */
 
+/* The editor area is now a "desk" — a darker surround — with the page
+   floating on top. */
 .editor-container {
   flex: 1;
   overflow: auto;
-  background: var(--bg);
-  /* Centred reading column rather than full-width edge-to-edge text — closer
-     to how a thesis manuscript actually wants to be read & written. */
+  background: #e3dfd4;        /* desk surround, light theme */
+  padding: 28px 0 96px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
 }
 
+[data-theme="dark"] .editor-container {
+  background: #0d0a07;
+}
+
+/* The page itself: white-ish paper, max width ~ 8.5in, drop shadow. */
 .editor-container .cm-editor {
-  height: 100%;
-  width: 100%;
-  max-width: 880px;            /* book-like column */
-  font-family: var(--font-serif);
-  font-size: 17px;
-  line-height: 1.75;
+  width: min(816px, calc(100% - 48px));
+  max-width: 816px;
+  height: auto;
+  min-height: 1056px;          /* ~11in so blank docs still look like a page */
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
   background: var(--bg-paper) !important;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 4px 18px rgba(0, 0, 0, 0.08);
+  margin-bottom: 24px;
+}
+
+[data-theme="dark"] .editor-container .cm-editor {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), 0 6px 24px rgba(0, 0, 0, 0.35);
 }
 
 .editor-container .cm-editor .cm-scroller {
-  overflow: auto;
+  overflow: visible;
 }
 
+/* 1-inch-ish page margins. */
 .editor-container .cm-editor .cm-content {
-  padding: 56px 64px 160px;    /* generous breathing room top/sides + tall bottom gutter */
+  padding: 72px 84px 180px;
   font-feature-settings: "kern" 1, "liga" 1;
+  caret-color: var(--accent);
 }
 
 @media (max-width: 700px) {
+  .editor-container { padding: 12px 0 60px; }
+  .editor-container .cm-editor {
+    width: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100%;
+  }
   .editor-container .cm-editor .cm-content {
     padding: 32px 24px 120px;
-  }
-  .editor-container .cm-editor {
-    font-size: 16px;
   }
 }
 
 .cm-editor .cm-gutters {
   background: var(--bg-paper) !important;
-  border-right: 1px solid var(--border) !important;
+  border-right: 1px solid transparent !important;
   color: var(--text-muted) !important;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .cm-editor .cm-activeLineGutter,
 .cm-editor .cm-activeLine {
-  background: var(--bg-elevated) !important;
+  background: transparent !important;
 }
 
 .cm-editor .cm-cursor {
   border-left-color: var(--accent) !important;
+  border-left-width: 2px !important;
 }
 
 .cm-editor .cm-selectionBackground {
   background: var(--accent-dim) !important;
+}
+
+/* Inline code spans get a soft mono pill. */
+.cm-md-code {
+  background: var(--bg-elevated);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.92em;
+}
+
+/* ─── Format bar ─────────────────────────────────────────────── */
+
+.format-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 20px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.format-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  line-height: 1;
+}
+
+.format-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+.format-btn:active {
+  background: var(--accent-dim);
+}
+
+.format-btn-bold { font-weight: 700; }
+.format-btn-italic { font-style: italic; }
+.format-btn-strike { text-decoration: line-through; }
+.format-btn-code { font-family: var(--font-mono); font-size: 11px; }
+
+.format-btn-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 6px;
+  display: inline-block;
 }
 
 /* ─── Status bar ──────────────────────────────────────────────── */
