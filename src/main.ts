@@ -13,8 +13,28 @@ import { IdentityUI } from './identity/identity-ui';
 import { PartyKitSync, type ChainMessage } from './sync/partykit-sync';
 import type { ProofFile } from './types';
 
-// Slice 1 single-file MVP — one fixed file ID; multi-file Project arrives in Slice 2.
-const SLICE1_FILE_ID = 'default';
+// File routing: the document being edited is identified by the URL hash. So
+// localhost:5173/#chapter-1 shares a room with everyone on the same URL, while
+// #chapter-2 is a completely separate document with its own per-author chains,
+// PartyKit room, Yjs doc, and IndexedDB session. Falls back to 'default' when
+// the hash is empty. Switching files requires a reload (intentional — keeps
+// the state model simple; each tab handles exactly one file at a time).
+
+function readFileIdFromHash(): string {
+  const raw = window.location.hash.slice(1).trim();
+  if (!raw) return 'default';
+  // Restrict to URL-safe characters so file IDs round-trip cleanly through
+  // PartyKit room paths and IndexedDB keys.
+  return raw.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 64) || 'default';
+}
+
+const SLICE1_FILE_ID = readFileIdFromHash();
+
+// Reload the page when the hash changes so we re-enter with a fresh
+// SessionManager + PartyKit connection for the new fileId.
+window.addEventListener('hashchange', () => {
+  if (readFileIdFromHash() !== SLICE1_FILE_ID) window.location.reload();
+});
 
 // ─── Identity bootstrap (top-level await) ─────────────────────────
 // Identity must exist before any session can record. First run prompts for a handle.
@@ -89,13 +109,40 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 // Header
 const header = document.createElement('div');
 header.className = 'header';
-header.innerHTML = `<span class="header-title">thesis</span>`;
+header.innerHTML = `<span class="header-title">thesis</span><span class="header-file" title="Edit URL hash to switch files">#${SLICE1_FILE_ID}</span>`;
 const headerRight = document.createElement('div');
 headerRight.className = 'header-right';
 header.appendChild(headerRight);
 app.appendChild(header);
 
 identityUI.mountBadge(headerRight);
+
+// ─── Identity backup nag banner ────────────────────────────────────
+// If the user hasn't backed up their identity (private key), nag them
+// until they do. Losing the browser's IndexedDB without a backup means
+// the chain becomes unrecoverable — there is no recovery path.
+
+const backupBanner = document.createElement('div');
+backupBanner.className = 'backup-nag';
+backupBanner.innerHTML = `
+  <span class="backup-nag-icon">!</span>
+  <span class="backup-nag-text">
+    <strong>Back up your identity.</strong>
+    If you lose this browser's data without a backup, your chain becomes unrecoverable.
+  </span>
+  <button class="btn btn-primary backup-nag-btn">Back up now</button>
+`;
+backupBanner.querySelector<HTMLButtonElement>('.backup-nag-btn')!.addEventListener('click', () => {
+  identityUI.openBackupFlow();
+});
+
+function refreshBackupBanner(): void {
+  backupBanner.style.display = identityStore.isBackedUp() ? 'none' : 'flex';
+}
+
+identityStore.onBackupStateChange(refreshBackupBanner);
+app.appendChild(backupBanner);
+refreshBackupBanner();
 
 // Tabs
 const tabsEl = document.createElement('div');

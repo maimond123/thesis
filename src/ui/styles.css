@@ -50,11 +50,53 @@ html, body {
   font-family: var(--font-mono);
 }
 
+.header-file {
+  margin-left: 12px;
+  padding: 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 .header-right {
   display: flex;
   align-items: center;
   gap: 8px;
 }
+
+/* ─── Backup nag banner ──────────────────────────────────────── */
+
+.backup-nag {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(255, 167, 38, 0.12);
+  border-bottom: 1px solid var(--warning);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.backup-nag-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--warning);
+  color: #1a1a1a;
+  font-weight: 700;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.backup-nag-text { flex: 1; }
+.backup-nag-text strong { color: var(--warning); margin-right: 6px; }
+.backup-nag-btn { white-space: nowrap; }
 
 /* ─── Identity badge ──────────────────────────────────────────── */
 
@@ -453,6 +495,93 @@ html, body {
 .speed-btn.active {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ─── Humanness profile ─────────────────────────────────────── */
+
+.humanness-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-top: 4px;
+}
+
+.humanness-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.humanness-section-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.humanness-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 80px;
+  padding-bottom: 28px;
+  position: relative;
+}
+
+.humanness-bar-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  position: relative;
+}
+
+.humanness-bar {
+  width: 100%;
+  background: var(--accent);
+  border-radius: 2px 2px 0 0;
+  transition: height 0.25s ease;
+  min-height: 2px;
+}
+
+.humanness-bar-value {
+  position: absolute;
+  top: -16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.humanness-bar-label {
+  position: absolute;
+  bottom: -22px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.humanness-paste-timeline {
+  position: relative;
+  height: 60px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.humanness-paste-spike {
+  position: absolute;
+  bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  background: var(--warning);
+  border-radius: 2px 2px 0 0;
 }
 
 /* ─── Per-author replay coloring ─────────────────────────────── */

@@ -46,17 +46,13 @@ async function get<T>(key: string): Promise<T | undefined> {
   });
 }
 
-async function clear(): Promise<void> {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('session', 'readwrite');
-    tx.objectStore('session').clear();
-    tx.oncomplete = () => { db.close(); resolve(); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
-
 // ─── Public API ────────────────────────────────────────────────────
+
+// Sessions are namespaced by fileId so two documents in the same browser
+// don't overwrite each other in IndexedDB.
+function activeKey(fileId: string): string {
+  return `active:${fileId}`;
+}
 
 export async function saveSession(
   metadata: SessionMetadata,
@@ -66,16 +62,23 @@ export async function saveSession(
   document: string,
 ): Promise<void> {
   const saved: SavedSession = { metadata, events, checkpoints, anchors, document };
-  await put('active', saved);
+  await put(activeKey(metadata.fileId), saved);
 }
 
-export async function loadSession(): Promise<SavedSession | null> {
-  const saved = await get<SavedSession>('active');
+export async function loadSession(fileId: string): Promise<SavedSession | null> {
+  const saved = await get<SavedSession>(activeKey(fileId));
   return saved ?? null;
 }
 
-export async function clearSession(): Promise<void> {
-  await clear();
+export async function clearSession(fileId: string): Promise<void> {
+  // Targeted delete — don't clear() the whole store, that would wipe other files.
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('session', 'readwrite');
+    tx.objectStore('session').delete(activeKey(fileId));
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
+  });
 }
 
 export type { SavedSession };
