@@ -11,6 +11,8 @@ import { anchorHashOnChain, explorerUrl, chainName } from './crypto/ethereum';
 import { IdentityStore } from './identity/identity-store';
 import { IdentityUI } from './identity/identity-ui';
 import { PartyKitSync, type ChainMessage } from './sync/partykit-sync';
+import { FileIndex } from './files/file-index';
+import { FileSidebar } from './files/sidebar';
 import type { ProofFile } from './types';
 
 // File routing: the document being edited is identified by the URL hash. So
@@ -66,6 +68,13 @@ let self = await identityStore.loadSelf();
 if (!self) {
   self = await identityUI.showFirstRunModal();
 }
+
+// ─── File index ────────────────────────────────────────────────────
+// Tracks every fileId this browser has opened so the sidebar can list past
+// documents. Slice-2 will add a signed project manifest; for now this is a
+// local convenience cache only.
+const fileIndex = new FileIndex();
+await fileIndex.recordVisit(SLICE1_FILE_ID);
 
 // ─── Shared doc state (Yjs) ────────────────────────────────────────
 // Y.Doc is the source of truth for the document. The CodeMirror editor is
@@ -241,6 +250,13 @@ toolbar.appendChild(exportBtn);
 toolbar.appendChild(importBtn);
 app.appendChild(toolbar);
 
+// Main area: sidebar + view container side by side.
+const mainArea = document.createElement('div');
+mainArea.className = 'main-area';
+
+// Sidebar (file list + new-file button) sits to the left of the views.
+new FileSidebar(mainArea, fileIndex, SLICE1_FILE_ID);
+
 // View container
 const viewContainer = document.createElement('div');
 viewContainer.className = 'view-container';
@@ -269,10 +285,11 @@ new VerifyUI(verifyPanel, (proof) => {
   replayView.loadProof(proof);
 });
 
-app.appendChild(viewContainer);
+mainArea.appendChild(viewContainer);
+app.appendChild(mainArea);
 
-// Commit hash display (below toolbar when visible)
-app.insertBefore(commitHashEl, viewContainer);
+// Commit hash display (below toolbar when visible, above the main sidebar+view area)
+app.insertBefore(commitHashEl, mainArea);
 
 // Status bar
 const statusBar = document.createElement('div');
