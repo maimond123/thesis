@@ -1,35 +1,47 @@
 :root, [data-theme="dark"] {
-  --bg: #0f0f0f;
-  --bg-surface: #1a1a1a;
-  --bg-elevated: #242424;
-  --bg-paper: #141414;          /* writing-pad surface, slightly off from --bg */
-  --border: #333;
-  --text: #e0e0e0;
-  --text-muted: #888;
-  --accent: #4fc3f7;
-  --accent-dim: #2a6f8f;
-  --success: #66bb6a;
-  --error: #ef5350;
-  --warning: #ffa726;
+  /* Warm near-black with the faintest brown undertone, so the screen reads
+     as evening lamplight rather than CRT-glow. */
+  --bg: #14110d;
+  --bg-surface: #1b1814;
+  --bg-elevated: #29241e;
+  --bg-paper: #181410;
+  --border: #2d2822;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-pop:  0 24px 64px rgba(0, 0, 0, 0.55);
+  --text: #ece3d0;             /* warm cream */
+  --text-muted: #8a7e6c;
+  --accent: #d6a25a;            /* honeyed amber — warmth instead of sky blue */
+  --accent-strong: #e7b66c;
+  --accent-dim: #3a2c19;
+  --accent-contrast: #1a140d;   /* dark text on amber buttons */
+  --success: #93b46d;
+  --error: #d96d4d;
+  --warning: #e5b048;
   --font-mono: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-serif: 'Iowan Old Style', 'Charter', 'Georgia', serif;
-  --radius: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
 }
 
 [data-theme="light"] {
-  --bg: #f5f3ee;                /* warm off-white, easier on the eye than pure white */
-  --bg-surface: #ffffff;
-  --bg-elevated: #ecebe5;
-  --bg-paper: #fbfaf6;          /* writing-pad surface */
-  --border: #d8d4c7;
-  --text: #1a1a1a;
-  --text-muted: #6b6660;
-  --accent: #0b62b3;
-  --accent-dim: #cfe1f1;
-  --success: #2f7d32;
-  --error: #b53a35;
-  --warning: #b67414;
+  /* Cream paper — warm enough to feel like a notebook page, not an exam room. */
+  --bg: #f6f1e4;
+  --bg-surface: #fbf7ec;
+  --bg-elevated: #ede4cf;
+  --bg-paper: #fcf7ea;
+  --border: #ddd1b6;
+  --shadow-soft: 0 1px 2px rgba(60, 45, 25, 0.08);
+  --shadow-pop:  0 24px 64px rgba(60, 45, 25, 0.18);
+  --text: #28231c;
+  --text-muted: #7a6f5e;
+  --accent: #a96b22;            /* burnt amber — ink on cream */
+  --accent-strong: #b97a2c;
+  --accent-dim: #efdcb2;
+  --accent-contrast: #fdf8eb;   /* near-white text on amber buttons */
+  --success: #5a7d3a;
+  --error: #b14d28;
+  --warning: #b07014;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,6 +52,11 @@ html, body {
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "kern" 1, "ss01" 1;
+  letter-spacing: 0.005em;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 #app {
@@ -54,28 +71,30 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
+  padding: 12px 20px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
 
 .header-title {
   font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-serif);
+  font-style: italic;
 }
 
 .header-file {
-  margin-left: 12px;
-  padding: 2px 8px;
-  background: var(--bg-elevated);
+  margin-left: 14px;
+  padding: 3px 10px;
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
+  letter-spacing: 0.01em;
 }
 
 .header-right {
@@ -90,25 +109,22 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: var(--bg-elevated);
+  width: 30px;
+  height: 30px;
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
+  border-radius: 999px;
+  color: var(--text-muted);
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
   line-height: 1;
 }
 
 .theme-toggle:hover {
-  background: #333;
+  color: var(--accent);
   border-color: var(--accent);
-}
-
-[data-theme="light"] .theme-toggle:hover {
-  background: var(--accent-dim);
+  background: var(--bg-elevated);
 }
 
 /* ─── Backup nag banner ──────────────────────────────────────── */
@@ -116,29 +132,34 @@ html, body {
 .backup-nag {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: rgba(255, 167, 38, 0.12);
-  border-bottom: 1px solid var(--warning);
-  font-size: 12px;
+  gap: 14px;
+  padding: 10px 20px;
+  background: rgba(229, 176, 72, 0.10);
+  border-bottom: 1px solid rgba(229, 176, 72, 0.35);
+  font-size: 12.5px;
   color: var(--text);
+}
+
+[data-theme="light"] .backup-nag {
+  background: rgba(176, 112, 20, 0.10);
+  border-bottom-color: rgba(176, 112, 20, 0.35);
 }
 
 .backup-nag-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--warning);
-  color: #1a1a1a;
+  color: var(--accent-contrast);
   font-weight: 700;
   font-size: 12px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
 }
 
-.backup-nag-text { flex: 1; }
+.backup-nag-text { flex: 1; line-height: 1.5; }
 .backup-nag-text strong { color: var(--warning); margin-right: 6px; }
 .backup-nag-btn { white-space: nowrap; }
 
@@ -148,19 +169,19 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  background: var(--bg-elevated);
+  padding: 5px 12px;
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 999px;
   color: var(--text);
   font-family: var(--font-sans);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .identity-badge:hover {
-  background: #333;
+  background: var(--bg-elevated);
   border-color: var(--accent);
 }
 
@@ -180,25 +201,32 @@ html, body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 999;
 }
 
+[data-theme="light"] .modal-overlay {
+  background: rgba(40, 30, 20, 0.32);
+}
+
 .modal-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 24px;
-  width: 420px;
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  width: 440px;
   max-width: 92vw;
   max-height: 85vh;
   overflow: auto;
+  box-shadow: var(--shadow-pop);
 }
 
-.modal-panel-wide { width: 520px; }
+.modal-panel-wide { width: 540px; }
 
 .modal-title {
   color: var(--accent);
@@ -305,26 +333,28 @@ html, body {
 
 .tabs {
   display: flex;
-  gap: 0;
+  gap: 4px;
+  padding: 0 20px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
 
 .tab {
-  padding: 10px 24px;
+  padding: 12px 18px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--text-muted);
   font-size: 13px;
+  font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.18s ease, border-color 0.18s ease;
+  letter-spacing: 0;
 }
 
 .tab:hover {
   color: var(--text);
-  background: var(--bg-elevated);
 }
 
 .tab.active {
@@ -338,40 +368,57 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 12px 20px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
 
 .btn {
-  padding: 6px 14px;
+  padding: 7px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-elevated);
   color: var(--text);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
   font-family: var(--font-sans);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  letter-spacing: 0;
 }
 
-.btn:hover { background: #333; }
+.btn:hover {
+  background: var(--bg-surface);
+  border-color: var(--text-muted);
+}
+.btn:active { transform: translateY(1px); }
 .btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled:hover { background: var(--bg-elevated); border-color: var(--border); }
 
 .btn-primary {
-  background: var(--accent-dim);
+  background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
+  box-shadow: var(--shadow-soft);
 }
 
-.btn-primary:hover { background: var(--accent); color: #000; }
+.btn-primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-contrast);
+}
 
 .btn-danger {
-  border-color: var(--error);
+  border-color: var(--border);
   color: var(--error);
+  background: transparent;
 }
 
-.btn-danger:hover { background: var(--error); color: #fff; }
+.btn-danger:hover {
+  background: var(--error);
+  border-color: var(--error);
+  color: var(--accent-contrast);
+}
 
 .toolbar-spacer { flex: 1; }
 
@@ -459,13 +506,14 @@ html, body {
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 4px 16px;
+  gap: 18px;
+  padding: 8px 20px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: 11.5px;
   font-family: var(--font-mono);
   color: var(--text-muted);
+  letter-spacing: 0;
 }
 
 .status-item { display: flex; align-items: center; gap: 4px; }
@@ -731,11 +779,12 @@ html, body {
 .verify-check {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px 16px;
-  background: var(--bg-elevated);
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-surface);
   border-radius: var(--radius);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
 }
 
 .verify-icon {
@@ -766,11 +815,12 @@ html, body {
 /* ─── Commit hash display ─────────────────────────────────────── */
 
 .commit-hash-display {
-  padding: 12px 16px;
-  background: var(--bg-elevated);
+  padding: 14px 18px;
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  margin: 8px 16px;
+  margin: 10px 20px;
+  box-shadow: var(--shadow-soft);
 }
 
 .commit-hash-label {
