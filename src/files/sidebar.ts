@@ -1,35 +1,72 @@
 import { FileIndex, slugify, type FileRecord } from './file-index';
 
+const COLLAPSE_KEY = 'thesis-sidebar-collapsed';
+
 // Left-rail sidebar listing every file this browser has touched. Clicking a
 // file changes the URL hash, which the existing `hashchange` handler in
 // main.ts catches and reloads on. "+ New" opens a modal that takes a name,
-// slugifies it into a fileId, and navigates.
+// slugifies it into a fileId, and navigates. The whole rail can collapse to
+// a narrow strip via the chevron — state persists across reloads.
 export class FileSidebar {
   private el: HTMLElement;
   private listEl: HTMLElement;
+  private toggleBtn: HTMLButtonElement;
   private fileIndex: FileIndex;
   private currentFileId: string;
+  private collapsed: boolean;
 
   constructor(parent: HTMLElement, fileIndex: FileIndex, currentFileId: string) {
     this.fileIndex = fileIndex;
     this.currentFileId = currentFileId;
+    this.collapsed = localStorage.getItem(COLLAPSE_KEY) === '1';
 
     this.el = document.createElement('aside');
     this.el.className = 'sidebar';
     this.el.innerHTML = `
       <div class="sidebar-header">
         <span class="sidebar-title">Files</span>
-        <button class="sidebar-new-btn" type="button">+ New</button>
+        <div class="sidebar-header-actions">
+          <button class="sidebar-new-btn" type="button">+ New</button>
+          <button class="sidebar-toggle-btn" type="button" title="Collapse sidebar" aria-label="Collapse sidebar">◀</button>
+        </div>
       </div>
       <div class="sidebar-list"></div>
     `;
     this.listEl = this.el.querySelector('.sidebar-list')!;
+    this.toggleBtn = this.el.querySelector<HTMLButtonElement>('.sidebar-toggle-btn')!;
     parent.appendChild(this.el);
+
+    this.applyCollapsed();
 
     this.el.querySelector<HTMLButtonElement>('.sidebar-new-btn')!
       .addEventListener('click', () => this.openNewFileModal());
+    this.toggleBtn.addEventListener('click', () => this.toggle());
+
+    // Clicking anywhere on the collapsed rail expands it.
+    this.el.addEventListener('click', (e) => {
+      if (!this.collapsed) return;
+      if ((e.target as HTMLElement).closest('.sidebar-toggle-btn')) return;
+      this.setCollapsed(false);
+    });
 
     void this.refresh();
+  }
+
+  private applyCollapsed(): void {
+    this.el.classList.toggle('sidebar-collapsed', this.collapsed);
+    this.toggleBtn.textContent = this.collapsed ? '▶' : '◀';
+    this.toggleBtn.title = this.collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    this.toggleBtn.setAttribute('aria-label', this.toggleBtn.title);
+  }
+
+  toggle(): void {
+    this.setCollapsed(!this.collapsed);
+  }
+
+  private setCollapsed(value: boolean): void {
+    this.collapsed = value;
+    localStorage.setItem(COLLAPSE_KEY, value ? '1' : '0');
+    this.applyCollapsed();
   }
 
   async refresh(): Promise<void> {
