@@ -9,6 +9,28 @@ import type * as Y from 'yjs';
 import type { Awareness } from 'y-protocols/awareness';
 import { wrapSelection, toggleLinePrefix } from './formatting';
 
+// "Page that grows with content" theme — overrides CodeMirror's defaults that
+// otherwise cap the editor at the scroller's flex-grown box. With these rules
+// the .cm-editor element itself extends as text is added, so the cream page
+// background reaches the last line instead of stopping mid-document. Hard
+// word-wrap handles long unbroken sequences like hashes / URLs.
+const pageTheme = EditorView.theme({
+  '&': {
+    height: 'auto',
+    minHeight: '1056px',
+  },
+  '.cm-scroller': {
+    overflow: 'visible',
+    flex: 'none',
+    height: 'auto',
+    minHeight: '100%',
+  },
+  '.cm-content, .cm-line': {
+    overflowWrap: 'anywhere',
+    wordBreak: 'break-word',
+  },
+});
+
 // Rich markdown-aware highlighting — headings render visibly larger and bold,
 // **bold** is bold, *italic* is italic, > quotes are dimmed, code spans get
 // a mono background, etc. The raw markdown markers stay visible (this is still
@@ -62,6 +84,7 @@ export function createEditor(
     formatKeymap(),
     keymap.of([...defaultKeymap, ...historyKeymap]),
     EditorView.lineWrapping,
+    pageTheme,
     yCollab(yText, awareness),
     ...extraExtensions,
   ];
