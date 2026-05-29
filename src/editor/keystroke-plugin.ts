@@ -24,6 +24,11 @@ export function keystrokeCaptureExtension(onEvent: OnEventCallback) {
     if (!update.docChanged) return;
 
     for (const tr of update.transactions) {
+      // Skip transactions that came from remote sources — those are co-author
+      // edits applied via Yjs and must NOT be signed by our identity. They will
+      // arrive via the per-author chain channel from the originating peer.
+      if (tr.annotation(Transaction.remote)) continue;
+
       const userEvent = tr.annotation(Transaction.userEvent);
       const eventType = mapUserEvent(userEvent);
 

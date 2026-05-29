@@ -9,7 +9,7 @@ interface SavedSession {
   checkpoints: Checkpoint[];
   anchors: TimestampAnchor[];
   document: string;
-  privateKeyJwk: JsonWebKey;
+  // Note: no private key stored here. Signing uses the persistent IdentityStore.
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -64,9 +64,8 @@ export async function saveSession(
   checkpoints: Checkpoint[],
   anchors: TimestampAnchor[],
   document: string,
-  privateKeyJwk: JsonWebKey,
 ): Promise<void> {
-  const saved: SavedSession = { metadata, events, checkpoints, anchors, document, privateKeyJwk };
+  const saved: SavedSession = { metadata, events, checkpoints, anchors, document };
   await put('active', saved);
 }
 

@@ -17,6 +17,7 @@ export type EventType =
 
 export interface AuthoringEvent {
   seq: number;
+  authorThumbprint: string; // JWK thumbprint of author's public key
   timestamp: number;       // performance.now() relative to session start
   type: EventType;
   from: number;            // position in doc BEFORE change
@@ -29,8 +30,9 @@ export interface AuthoringEvent {
 }
 
 // ─── Raw event before hashing ──────────────────────────────────────
+// Author is attached by the EventStore (it knows whose chain it is).
 
-export type RawEvent = Omit<AuthoringEvent, 'hash' | 'prevHash' | 'seq'>;
+export type RawEvent = Omit<AuthoringEvent, 'hash' | 'prevHash' | 'seq' | 'authorThumbprint'>;
 
 // ─── Checkpoint ────────────────────────────────────────────────────
 
@@ -56,12 +58,23 @@ export interface TimestampAnchor {
 
 export interface SessionMetadata {
   sessionId: string;
+  fileId: string;          // identifies WHICH file these events belong to
   startTime: string;       // ISO 8601 wall-clock
   endTime: string;
   perfTimeOrigin: number;  // performance.now() at session start
-  publicKey: JsonWebKey;
+  publicKey: JsonWebKey;   // local author's public key
+  localAuthorThumbprint: string; // JWK thumbprint of the local author
+  authors: PublicIdentitySnapshot[]; // roster — anyone who appears in events[]
   appVersion: string;
-  genesisHash: string;
+  genesisHash: string;     // genesis of the LOCAL author's chain (derived from {fileId, localAuthorThumbprint})
+}
+
+// Snapshot of a public identity captured into a proof file so verifiers can
+// look up an author's public key by thumbprint without an external directory.
+export interface PublicIdentitySnapshot {
+  thumbprint: string;
+  handle: string;
+  publicKey: JsonWebKey;
 }
 
 // ─── Proof File ────────────────────────────────────────────────────

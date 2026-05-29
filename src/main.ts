@@ -1,3 +1,5 @@
+import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 import { createEditor } from './editor/setup';
 import { keystrokeCaptureExtension } from './editor/keystroke-plugin';
 import { SessionManager } from './session/session-manager';
@@ -6,14 +8,79 @@ import { importFromFile } from './export/importer';
 import { ReplayView } from './replay/replay-view';
 import { VerifyUI } from './verification/verify-ui';
 import { anchorHashOnChain, explorerUrl, chainName } from './crypto/ethereum';
+import { IdentityStore } from './identity/identity-store';
+import { IdentityUI } from './identity/identity-ui';
+import { PartyKitSync, type ChainMessage } from './sync/partykit-sync';
 import type { ProofFile } from './types';
+
+// Slice 1 single-file MVP — one fixed file ID; multi-file Project arrives in Slice 2.
+const SLICE1_FILE_ID = 'default';
+
+// ─── Identity bootstrap (top-level await) ─────────────────────────
+// Identity must exist before any session can record. First run prompts for a handle.
+
+const identityStore = new IdentityStore();
+const identityUI = new IdentityUI(identityStore);
+let self = await identityStore.loadSelf();
+if (!self) {
+  self = await identityUI.showFirstRunModal();
+}
+
+// ─── Shared doc state (Yjs) ────────────────────────────────────────
+// Y.Doc is the source of truth for the document. The CodeMirror editor is
+// a view bound to a Y.Text within this doc via y-codemirror.next. Co-author
+// edits arrive through PartyKit (Task 5) and update the same Y.Text.
+
+const ydoc = new Y.Doc();
+const yText = ydoc.getText('main');
+const awareness = new Awareness(ydoc);
+awareness.setLocalStateField('user', {
+  handle: self.handle,
+  thumbprint: self.thumbprint,
+  short: `${self.thumbprint.slice(0, 6)}…${self.thumbprint.slice(-4)}`,
+});
 
 // ─── State ─────────────────────────────────────────────────────────
 
-const session = new SessionManager();
+const session = new SessionManager(identityStore, SLICE1_FILE_ID);
 let editorView: ReturnType<typeof createEditor> | null = null;
 let lastProof: ProofFile | null = null;
 let replayView: ReplayView;
+
+// ─── PartyKit live sync ────────────────────────────────────────────
+let partyStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
+
+const partyKitSync = new PartyKitSync({
+  fileId: SLICE1_FILE_ID,
+  ydoc,
+  awareness,
+  onChainMessage: (msg: ChainMessage) => {
+    if (!msg?.payload) return;
+    const payload = msg.payload as { event?: import('./types').AuthoringEvent; coAuthor?: { thumbprint: string; handle: string; publicKey: JsonWebKey } };
+    if (!payload.event) return;
+    void session.appendRemoteEvent(msg.fromThumbprint, payload.event, payload.coAuthor);
+  },
+  onStatus: (s) => {
+    partyStatus = s;
+  },
+});
+partyKitSync.connect();
+
+session.onLocalEventAppended = (authorThumbprint, event) => {
+  if (partyStatus !== 'connected') return;
+  partyKitSync.sendChainMessage({
+    kind: 'chain',
+    fromThumbprint: authorThumbprint,
+    payload: {
+      event,
+      coAuthor: {
+        thumbprint: self.thumbprint,
+        handle: self.handle,
+        publicKey: self.publicKey,
+      },
+    },
+  });
+};
 
 // ─── Build DOM ─────────────────────────────────────────────────────
 
@@ -23,7 +90,12 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 const header = document.createElement('div');
 header.className = 'header';
 header.innerHTML = `<span class="header-title">thesis</span>`;
+const headerRight = document.createElement('div');
+headerRight.className = 'header-right';
+header.appendChild(headerRight);
 app.appendChild(header);
+
+identityUI.mountBadge(headerRight);
 
 // Tabs
 const tabsEl = document.createElement('div');
@@ -120,11 +192,14 @@ app.insertBefore(commitHashEl, viewContainer);
 const statusBar = document.createElement('div');
 statusBar.className = 'status-bar';
 
+const statusGroup = document.createElement('span');
+statusGroup.className = 'status-item';
 const statusDot = document.createElement('span');
 statusDot.className = 'status-dot idle';
-
 const statusText = document.createElement('span');
 statusText.textContent = 'Idle';
+statusGroup.appendChild(statusDot);
+statusGroup.appendChild(statusText);
 
 const eventCount = document.createElement('span');
 eventCount.className = 'status-item';
@@ -134,17 +209,97 @@ const checkpointCount = document.createElement('span');
 checkpointCount.className = 'status-item';
 checkpointCount.textContent = 'Checkpoints: 0';
 
-const cloudStatus = document.createElement('span');
-cloudStatus.className = 'status-item';
-cloudStatus.textContent = '';
+// Tier freshness indicators — one per durability layer.
+const tierLocal = createTierIndicator('IDB');
+const tierEmergency = createTierIndicator('Local');
+const tierCloud = createTierIndicator('Cloud');
+const tierLive = createTierIndicator('Live');
 
-statusBar.appendChild(document.createElement('span')).appendChild(statusDot);
-statusBar.querySelector('span')!.classList.add('status-item');
-statusBar.querySelector('.status-item')!.appendChild(statusText);
+statusBar.appendChild(statusGroup);
 statusBar.appendChild(eventCount);
 statusBar.appendChild(checkpointCount);
-statusBar.appendChild(cloudStatus);
+statusBar.appendChild(tierLocal.el);
+statusBar.appendChild(tierEmergency.el);
+statusBar.appendChild(tierCloud.el);
+statusBar.appendChild(tierLive.el);
 app.appendChild(statusBar);
+
+function createTierIndicator(label: string): { el: HTMLSpanElement; setState: (state: 'ok' | 'stale' | 'down' | 'idle', ageMs: number | null) => void } {
+  const wrap = document.createElement('span');
+  wrap.className = 'status-item tier';
+  const dot = document.createElement('span');
+  dot.className = 'tier-dot idle';
+  const text = document.createElement('span');
+  text.textContent = `${label}: —`;
+  wrap.appendChild(dot);
+  wrap.appendChild(text);
+  return {
+    el: wrap,
+    setState(state, ageMs) {
+      dot.className = `tier-dot ${state}`;
+      if (state === 'idle' || ageMs === null) {
+        text.textContent = `${label}: —`;
+      } else if (state === 'down') {
+        text.textContent = `${label}: error`;
+      } else {
+        const sec = Math.round(ageMs / 1000);
+        text.textContent = `${label}: ${sec}s`;
+      }
+    },
+  };
+}
+
+let lastCloudOk = true;
+
+function refreshTiers(): void {
+  const now = Date.now();
+
+  // For a tier with pending data, age = time since last save. If everything
+  // is already saved, the tier is OK regardless of how long ago the save was.
+  const tierForPending = (last: number | null, fullySaved: boolean, okMs: number, staleMs: number) => {
+    if (session.state !== 'recording') return { state: 'idle' as const, age: null };
+    if (fullySaved) return { state: 'ok' as const, age: last ? now - last : 0 };
+    if (last === null) return { state: 'down' as const, age: null };
+    const age = now - last;
+    if (age <= okMs) return { state: 'ok' as const, age };
+    if (age <= staleMs) return { state: 'stale' as const, age };
+    return { state: 'down' as const, age };
+  };
+
+  const idb = tierForPending(session.lastIdbSaveAt, session.isFullyPersistedToIdb(), 2_000, 10_000);
+  tierLocal.setState(idb.state, idb.age);
+
+  // localStorage emergency tier is purely time-based — it fires on a 30s
+  // schedule regardless of whether there are new events.
+  if (session.state !== 'recording') {
+    tierEmergency.setState('idle', null);
+  } else if (session.lastEmergencySaveAt === null) {
+    tierEmergency.setState('stale', null);
+  } else {
+    const age = now - session.lastEmergencySaveAt;
+    if (age <= 45_000) tierEmergency.setState('ok', age);
+    else if (age <= 120_000) tierEmergency.setState('stale', age);
+    else tierEmergency.setState('down', age);
+  }
+
+  if (session.state === 'recording') {
+    if (!lastCloudOk) {
+      tierCloud.setState('down', null);
+    } else {
+      const cl = tierForPending(session.lastCloudSaveAt, session.isFullyPersistedToCloud(), 15_000, 60_000);
+      tierCloud.setState(cl.state, cl.age);
+    }
+  } else {
+    tierCloud.setState('idle', null);
+  }
+
+  // Live (PartyKit) tier — purely status-driven, not freshness.
+  if (partyStatus === 'connected') tierLive.setState('ok', 0);
+  else if (partyStatus === 'connecting') tierLive.setState('stale', null);
+  else tierLive.setState('down', null);
+}
+
+window.setInterval(refreshTiers, 1_000);
 
 // ─── Create editor ─────────────────────────────────────────────────
 
@@ -157,7 +312,7 @@ const captureExtension = keystrokeCaptureExtension((raw) => {
   session.handleEvent(raw);
 });
 
-editorView = createEditor(editorContainer, [captureExtension]);
+editorView = createEditor(editorContainer, yText, awareness, [captureExtension]);
 
 // ─── Session callbacks ─────────────────────────────────────────────
 
@@ -166,13 +321,12 @@ session.onEventAdded = (count) => {
 };
 
 session.onCloudSync = (status, message) => {
-  if (status === 'saving') cloudStatus.textContent = 'Cloud: saving...';
-  else if (status === 'saved') {
-    cloudStatus.textContent = 'Cloud: saved';
-    setTimeout(() => { if (cloudStatus.textContent === 'Cloud: saved') cloudStatus.textContent = ''; }, 3000);
-  }
-  else if (status === 'error') {
-    cloudStatus.textContent = `Cloud: error`;
+  if (status === 'saving') {
+    // tier indicator handles display; nothing to do here
+  } else if (status === 'saved') {
+    lastCloudOk = true;
+  } else if (status === 'error') {
+    lastCloudOk = false;
     console.error('[thesis] Cloud save error:', message);
   }
 };
@@ -237,24 +391,54 @@ session.onStateChange = (state) => {
 
 // ─── Button handlers ───────────────────────────────────────────────
 
+// Auto-export timer — every 5 min during an active session, download a snapshot
+// ProofFile so the user has an off-system backup independent of IDB / Vercel / PartyKit.
+const AUTO_EXPORT_INTERVAL_MS = 5 * 60 * 1000;
+let autoExportTimer: number | null = null;
+
+function startAutoExportTimer(): void {
+  stopAutoExportTimer();
+  autoExportTimer = window.setInterval(async () => {
+    if (session.state !== 'recording') return;
+    try {
+      const snap = await session.snapshot();
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      downloadProof(snap, `thesis-${snap.session.sessionId.slice(0, 8)}-${ts}.json`);
+    } catch (err) {
+      console.warn('[thesis] Auto-export failed:', err);
+    }
+  }, AUTO_EXPORT_INTERVAL_MS);
+}
+
+function stopAutoExportTimer(): void {
+  if (autoExportTimer !== null) {
+    clearInterval(autoExportTimer);
+    autoExportTimer = null;
+  }
+}
+
 startBtn.addEventListener('click', async () => {
   if (!editorView) return;
 
-  // Clear editor
-  editorView.dispatch({
-    changes: { from: 0, to: editorView.state.doc.length, insert: '' },
+  // Clear the shared doc via Yjs (NOT a direct CM dispatch — Y.Text is the
+  // source of truth, and clearing through Yjs cleanly propagates to all peers).
+  ydoc.transact(() => {
+    if (yText.length > 0) yText.delete(0, yText.length);
   });
 
-  await session.start(() => editorView!.state.doc.toString());
+  await session.start(() => yText.toString());
 
   eventCount.textContent = 'Events: 0';
   checkpointCount.textContent = 'Checkpoints: 0';
   commitHashEl.style.display = 'none';
   lastProof = null;
   exportBtn.disabled = true;
+  lastCloudOk = true;
+  startAutoExportTimer();
 });
 
 endBtn.addEventListener('click', async () => {
+  stopAutoExportTimer();
   lastProof = await session.end();
   exportBtn.disabled = false;
 });
@@ -319,10 +503,11 @@ loadSessionBtn.addEventListener('click', async () => {
         try {
           const ok = await session.recoverFromCloud(
             s.id,
-            () => editorView!.state.doc.toString(),
+            () => yText.toString(),
             (doc) => {
-              editorView!.dispatch({
-                changes: { from: 0, to: editorView!.state.doc.length, insert: doc },
+              ydoc.transact(() => {
+                if (yText.length > 0) yText.delete(0, yText.length);
+                yText.insert(0, doc);
               });
             },
           );
@@ -365,16 +550,21 @@ loadSessionBtn.addEventListener('click', async () => {
     isCaptureEnabled = () => capturing;
 
     const recovered = await session.recover(
-      () => editorView!.state.doc.toString(),
+      () => yText.toString(),
       (doc) => {
-        editorView!.dispatch({
-          changes: { from: 0, to: editorView!.state.doc.length, insert: doc },
+        // Write restored content into Y.Text inside a transaction so the
+        // y-codemirror binding updates CodeMirror as a single atomic change.
+        ydoc.transact(() => {
+          if (yText.length > 0) yText.delete(0, yText.length);
+          yText.insert(0, doc);
         });
       },
     );
     if (recovered) {
       eventCount.textContent = `Events: ${session.getEventCount()}`;
       checkpointCount.textContent = `Checkpoints: ${session.getCheckpoints().length}`;
+      lastCloudOk = true;
+      startAutoExportTimer();
       console.log(`[thesis] Recovered session with ${session.getEventCount()} events`);
     }
 

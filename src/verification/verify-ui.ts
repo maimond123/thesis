@@ -117,6 +117,18 @@ export class VerifyUI {
       checks.finalSignature.details
     );
 
+    this.addCheck(
+      checks.roster.passed ? 'pass' : 'fail',
+      checks.roster.message,
+      checks.roster.details,
+    );
+
+    // Authors roster — display each contributing author with their handle and short thumbprint.
+    if (proof.session.authors && proof.session.authors.length > 0) {
+      const lines = proof.session.authors.map((a) => `${a.handle}  (${a.thumbprint.slice(0, 8)}…${a.thumbprint.slice(-4)})`);
+      this.addCheck('info', `Authors (${proof.session.authors.length})`, lines.join('\n'));
+    }
+
     // Human pattern analysis
     const hp = checks.humanPatterns;
     this.addCheck(

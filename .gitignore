@@ -24,3 +24,12 @@ dist-ssr
 *.sw?
 .vercel
 .env*.local
+
+# PartyKit local dev state
+.partykit/
+
+# Playwright MCP test artifacts
+.playwright-mcp/
+
+# Local screenshots from manual / automated UI checks
+*.png

@@ -30,6 +30,7 @@ export async function computeEventHash(
 ): Promise<string> {
   const payload = canonicalJsonStringify({
     seq: event.seq,
+    authorThumbprint: event.authorThumbprint,
     timestamp: event.timestamp,
     type: event.type,
     from: event.from,
@@ -47,6 +48,16 @@ export async function computeGenesisHash(
 ): Promise<string> {
   const payload = canonicalJsonStringify(metadata);
   return sha256(payload);
+}
+
+// Deterministic per-author chain genesis. Any peer can derive any author's
+// genesis from just (fileId, authorThumbprint) — no coordination required.
+export async function deriveChainGenesis(fileId: string, authorThumbprint: string): Promise<string> {
+  return sha256(canonicalJsonStringify({
+    kind: 'thesis-chain-genesis-v1',
+    fileId,
+    authorThumbprint,
+  }));
 }
 
 // ─── Validation ────────────────────────────────────────────────────

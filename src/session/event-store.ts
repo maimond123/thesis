@@ -4,27 +4,37 @@ import { computeEventHash } from '../crypto/hash-chain';
 export class EventStore {
   private events: AuthoringEvent[] = [];
   private hashQueue: Promise<void> = Promise.resolve();
-  private genesisHash: string;
+  private readonly authorThumbprint: string;
+  private readonly genesisHash: string;
 
-  constructor(genesisHash: string) {
+  constructor(authorThumbprint: string, genesisHash: string) {
+    this.authorThumbprint = authorThumbprint;
     this.genesisHash = genesisHash;
   }
 
-  static fromEvents(events: AuthoringEvent[], genesisHash: string): EventStore {
-    const store = new EventStore(genesisHash);
+  static fromEvents(
+    events: AuthoringEvent[],
+    authorThumbprint: string,
+    genesisHash: string,
+  ): EventStore {
+    const store = new EventStore(authorThumbprint, genesisHash);
     store.events = [...events];
     return store;
   }
 
   append(raw: RawEvent): void {
-    // Queue hash computation so each event waits for the previous hash
     this.hashQueue = this.hashQueue.then(async () => {
       const seq = this.events.length;
       const prevHash = seq === 0
         ? this.genesisHash
         : this.events[seq - 1].hash;
 
-      const partial = { ...raw, seq, prevHash };
+      const partial = {
+        ...raw,
+        authorThumbprint: this.authorThumbprint,
+        seq,
+        prevHash,
+      };
       const hash = await computeEventHash(partial);
 
       this.events.push({ ...partial, hash });
@@ -37,6 +47,14 @@ export class EventStore {
 
   getEvents(): AuthoringEvent[] {
     return this.events;
+  }
+
+  getAuthorThumbprint(): string {
+    return this.authorThumbprint;
+  }
+
+  getGenesisHash(): string {
+    return this.genesisHash;
   }
 
   getLastHash(): string {

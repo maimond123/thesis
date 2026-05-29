@@ -6,7 +6,6 @@ interface CloudSession {
   checkpoints: Checkpoint[];
   anchors: TimestampAnchor[];
   document: string;
-  privateKeyJwk: JsonWebKey;
   savedAt: string;
 }
 
@@ -24,7 +23,6 @@ export async function cloudSave(
   checkpoints: Checkpoint[],
   anchors: TimestampAnchor[],
   document: string,
-  privateKeyJwk: JsonWebKey,
 ): Promise<void> {
   const data: CloudSession = {
     metadata,
@@ -32,7 +30,6 @@ export async function cloudSave(
     checkpoints,
     anchors,
     document,
-    privateKeyJwk,
     savedAt: new Date().toISOString(),
   };
 

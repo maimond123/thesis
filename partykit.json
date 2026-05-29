@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "thesis",
+  "main": "party/yjs.ts",
+  "parties": {
+    "chain": "party/chain.ts"
+  },
+  "compatibilityDate": "2024-09-01"
+}

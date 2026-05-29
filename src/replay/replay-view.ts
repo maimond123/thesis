@@ -1,3 +1,5 @@
+import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 import type { ProofFile } from '../types';
 import { createEditor } from '../editor/setup';
 import { ReplayEngine } from './replay-engine';
@@ -95,7 +97,13 @@ export class ReplayView {
     this.editorContainer.style.display = 'block';
     this.editorContainer.innerHTML = '';
 
-    const view = createEditor(this.editorContainer, [], true);
+    // Replay needs its own isolated Y.Doc so it doesn't share state with the
+    // live editor in the Editor tab. y-codemirror requires a Y.Text + Awareness
+    // even in read-only mode.
+    const replayDoc = new Y.Doc();
+    const replayText = replayDoc.getText('main');
+    const replayAwareness = new Awareness(replayDoc);
+    const view = createEditor(this.editorContainer, replayText, replayAwareness, [], true);
 
     this.engine = new ReplayEngine(proof.events);
     this.engine.attachView(view);
