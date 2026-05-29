@@ -127,7 +127,10 @@ export class ReplayView {
 
   loadProof(proof: ProofFile): void {
     this.emptyState.style.display = 'none';
-    this.editorContainer.style.display = 'block';
+    // Must match the .editor-container CSS rule (display: flex) so the
+    // centred-page layout takes effect; previously this was 'block' which
+    // disabled the flex container and pinned the page to the left.
+    this.editorContainer.style.display = 'flex';
     this.editorContainer.innerHTML = '';
 
     // Build author → palette index by first appearance in the events list so
