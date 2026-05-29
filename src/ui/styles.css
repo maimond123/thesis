@@ -455,6 +455,53 @@ html, body {
   color: var(--accent);
 }
 
+/* ─── Per-author replay coloring ─────────────────────────────── */
+
+.replay-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.replay-legend:empty { display: none; }
+
+.replay-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.replay-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+/* Author color palette — used by both Replay swatches and decorated characters. */
+.cm-author-0, .replay-legend-swatch.cm-author-0 { background: rgba(79, 195, 247, 0.22); color: #ddedf3; }
+.cm-author-1, .replay-legend-swatch.cm-author-1 { background: rgba(255, 167, 38, 0.22); color: #f3e6d8; }
+.cm-author-2, .replay-legend-swatch.cm-author-2 { background: rgba(174, 213, 129, 0.22); color: #e6f0d8; }
+.cm-author-3, .replay-legend-swatch.cm-author-3 { background: rgba(240, 98, 146, 0.22); color: #f3d8e0; }
+.cm-author-4, .replay-legend-swatch.cm-author-4 { background: rgba(186, 104, 200, 0.22); color: #ecd8f3; }
+.cm-author-5, .replay-legend-swatch.cm-author-5 { background: rgba(255, 213, 79, 0.22); color: #f3ecd8; }
+
+/* Make legend swatches solid (not the semi-transparent version) for visibility. */
+.replay-legend-swatch.cm-author-0 { background: #4fc3f7; }
+.replay-legend-swatch.cm-author-1 { background: #ffa726; }
+.replay-legend-swatch.cm-author-2 { background: #aed581; }
+.replay-legend-swatch.cm-author-3 { background: #f06292; }
+.replay-legend-swatch.cm-author-4 { background: #ba68c8; }
+.replay-legend-swatch.cm-author-5 { background: #ffd54f; }
+
 /* ─── Verify panel ────────────────────────────────────────────── */
 
 .verify-container {

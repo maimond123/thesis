@@ -1,6 +1,7 @@
 import type { AuthoringEvent } from '../types';
 import { EditorView } from '@codemirror/view';
 import type { ChangeSpec } from '@codemirror/state';
+import { addAuthorMark, clearAuthorMarks } from './author-decoration';
 
 export type ReplayState = 'stopped' | 'playing' | 'paused';
 
@@ -13,12 +14,15 @@ export class ReplayEngine {
   private timeoutId: number | null = null;
   private _speed = 1;
   private view: EditorView | null = null;
+  // Per-author colour assignment: thumbprint → index into the palette.
+  private authorIndex: Map<string, number>;
 
   onProgress?: (index: number, total: number) => void;
   onStateChange?: (state: ReplayState) => void;
 
-  constructor(events: AuthoringEvent[]) {
+  constructor(events: AuthoringEvent[], authorIndex: Map<string, number>) {
     this.events = events;
+    this.authorIndex = authorIndex;
   }
 
   attachView(view: EditorView): void {
@@ -79,7 +83,6 @@ export class ReplayEngine {
     this.resetView();
     this.currentIndex = 0;
 
-    // Apply all events up to index without delay
     const target = Math.min(index, this.events.length);
     for (let i = 0; i < target; i++) {
       this.applyEvent(this.events[i]);
@@ -119,21 +122,27 @@ export class ReplayEngine {
   private applyEvent(event: AuthoringEvent): void {
     if (!this.view) return;
 
-    const changes: ChangeSpec[] = [];
-    if (event.inserted !== '' || event.deleted !== '') {
-      changes.push({
-        from: event.from,
-        to: event.from + event.deleted.length,
-        insert: event.inserted,
-      });
-    }
+    if (event.inserted === '' && event.deleted === '') return;
 
-    if (changes.length > 0) {
-      this.view.dispatch({
-        changes,
-        selection: { anchor: event.cursorAfter },
-      });
-    }
+    const changes: ChangeSpec = {
+      from: event.from,
+      to: event.from + event.deleted.length,
+      insert: event.inserted,
+    };
+
+    // Stage the author-mark effect together with the change so the new range
+    // gets the right colour as it's inserted.
+    const idx = this.authorIndex.get(event.authorThumbprint) ?? 0;
+    const effects =
+      event.inserted.length > 0
+        ? [addAuthorMark.of({ from: event.from, to: event.from + event.inserted.length, authorIndex: idx })]
+        : [];
+
+    this.view.dispatch({
+      changes,
+      effects,
+      selection: { anchor: event.cursorAfter },
+    });
   }
 
   private resetView(): void {
@@ -144,6 +153,7 @@ export class ReplayEngine {
         to: this.view.state.doc.length,
         insert: '',
       },
+      effects: [clearAuthorMarks.of(undefined)],
     });
   }
 }
