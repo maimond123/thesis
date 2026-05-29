@@ -18,6 +18,8 @@ export class IdentityUI {
     this.badge = badge;
     this.refreshBadge();
     badge.addEventListener('click', () => this.openManagePanel());
+    // Keep the badge label in sync with renames / backup state changes.
+    this.store.onChange(() => this.refreshBadge());
     return badge;
   }
 
@@ -123,6 +125,7 @@ export class IdentityUI {
           <div class="identity-card-thumb" title="${self.thumbprint}">${shortThumb(self.thumbprint)}</div>
         </div>
         <div class="modal-button-row">
+          <button class="btn" id="rename-self">Rename</button>
           <button class="btn" id="share-public">Share Public Identity</button>
           <button class="btn btn-primary" id="backup-private">Backup My Identity (PRIVATE)</button>
         </div>
@@ -151,9 +154,23 @@ export class IdentityUI {
     });
     panel.querySelector<HTMLButtonElement>('#close-panel')!.addEventListener('click', () => overlay.remove());
 
+    panel.querySelector<HTMLButtonElement>('#rename-self')!.addEventListener('click', async () => {
+      const next = window.prompt('New display handle (your cryptographic identity stays the same):', self.handle);
+      if (next === null) return;
+      try {
+        await this.store.renameSelf(next);
+        // Update the open panel so the new handle shows without a reopen.
+        const handleEl = panel.querySelector<HTMLDivElement>('.identity-card-handle');
+        if (handleEl) handleEl.textContent = this.store.getSelf().handle;
+        this.onChange?.();
+      } catch (err) {
+        alert(`Failed to rename: ${err instanceof Error ? err.message : err}`);
+      }
+    });
+
     panel.querySelector<HTMLButtonElement>('#share-public')!.addEventListener('click', () => {
       const bundle = this.store.exportPublicBundle();
-      downloadJson(`${self.handle}-public-identity.json`, bundle);
+      downloadJson(`${this.store.getSelf().handle}-public-identity.json`, bundle);
     });
 
     panel.querySelector<HTMLButtonElement>('#backup-private')!.addEventListener('click', async () => {
@@ -164,7 +181,7 @@ export class IdentityUI {
       );
       if (!ok) return;
       const bundle = this.store.exportBackupBundle();
-      downloadJson(`${self.handle}-PRIVATE-identity-backup.json`, bundle);
+      downloadJson(`${this.store.getSelf().handle}-PRIVATE-identity-backup.json`, bundle);
       await this.store.markBackedUp();
       const warning = panel.querySelector<HTMLParagraphElement>('#backup-warning');
       if (warning) warning.style.display = 'none';

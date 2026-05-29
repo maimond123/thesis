@@ -84,11 +84,19 @@ await fileIndex.recordVisit(SLICE1_FILE_ID);
 const ydoc = new Y.Doc();
 const yText = ydoc.getText('main');
 const awareness = new Awareness(ydoc);
-awareness.setLocalStateField('user', {
-  handle: self.handle,
-  thumbprint: self.thumbprint,
-  short: `${self.thumbprint.slice(0, 6)}…${self.thumbprint.slice(-4)}`,
-});
+
+function publishLocalAwareness(): void {
+  const s = identityStore.getSelf();
+  awareness.setLocalStateField('user', {
+    handle: s.handle,
+    thumbprint: s.thumbprint,
+    short: `${s.thumbprint.slice(0, 6)}…${s.thumbprint.slice(-4)}`,
+  });
+}
+publishLocalAwareness();
+// Re-publish whenever the identity changes (rename, backup-marked, etc.) so
+// co-authors see the new handle live in their presence cursors.
+identityStore.onChange(publishLocalAwareness);
 
 // ─── State ─────────────────────────────────────────────────────────
 

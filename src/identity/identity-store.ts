@@ -178,17 +178,40 @@ export class IdentityStore {
     self.backedUpAt = new Date().toISOString();
     await idbPut('self', 'me', self);
     this.self = self;
-    this.backupListeners.forEach((fn) => fn());
+    this.emitChange();
   }
 
   isBackedUp(): boolean {
     return !!this.self?.backedUpAt;
   }
 
-  private backupListeners: Set<() => void> = new Set();
+  // Change the display handle. Mutates in place so any references held by
+  // callers (main.ts's `self` variable, the chain-broadcast closure) see the
+  // new value without needing to be re-bound. The cryptographic identity
+  // (thumbprint, public key) is unchanged — the handle is display-only.
+  async renameSelf(handle: string): Promise<SelfIdentity> {
+    if (!this.self) throw new Error('Identity not initialized');
+    const trimmed = handle.trim().slice(0, 40);
+    if (!trimmed) throw new Error('Handle cannot be empty');
+    if (trimmed === this.self.handle) return this.self;
+    this.self.handle = trimmed;
+    await idbPut('self', 'me', this.self);
+    this.emitChange();
+    return this.self;
+  }
+
+  private changeListeners: Set<() => void> = new Set();
+  onChange(fn: () => void): () => void {
+    this.changeListeners.add(fn);
+    return () => this.changeListeners.delete(fn);
+  }
+  private emitChange(): void {
+    this.changeListeners.forEach((fn) => fn());
+  }
+
+  // Backwards-compatible alias for the backup-banner subscriber.
   onBackupStateChange(fn: () => void): () => void {
-    this.backupListeners.add(fn);
-    return () => this.backupListeners.delete(fn);
+    return this.onChange(fn);
   }
 
   async restoreFromBackup(bundle: IdentityBundle): Promise<SelfIdentity> {
