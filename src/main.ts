@@ -420,12 +420,9 @@ function stopAutoExportTimer(): void {
 startBtn.addEventListener('click', async () => {
   if (!editorView) return;
 
-  // Clear the shared doc via Yjs (NOT a direct CM dispatch — Y.Text is the
-  // source of truth, and clearing through Yjs cleanly propagates to all peers).
-  ydoc.transact(() => {
-    if (yText.length > 0) yText.delete(0, yText.length);
-  });
-
+  // Begin recording on the current document state — do NOT wipe. The Y.Text
+  // may already contain content synced from peers in the room; the local
+  // author's chain just starts capturing new keystrokes from this point on.
   await session.start(() => yText.toString());
 
   eventCount.textContent = 'Events: 0';
