@@ -85,6 +85,8 @@ export interface PublicIdentitySnapshot {
 
 // ─── Proof File ────────────────────────────────────────────────────
 
+import type { CommentsBundle } from './comments/types';
+
 export interface ProofFile {
   version: 1;
   session: SessionMetadata;
@@ -93,4 +95,7 @@ export interface ProofFile {
   timestampAnchors: TimestampAnchor[];
   finalDocument: string;
   finalSignature: string;
+  // Optional review-activity payload. Absent on v1 proofs predating comments;
+  // verifier degrades cleanly when missing.
+  comments?: CommentsBundle;
 }
