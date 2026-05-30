@@ -20,6 +20,8 @@ export class CommentSidePanel {
   private readonly body: HTMLElement;
   private readonly headerCount: HTMLElement;
   private unsubscribe: (() => void) | null = null;
+  private docUpdateHandler: (() => void) | null = null;
+  private renderQueued = false;
   private expandedThreadId: string | null = null;
   private showResolved = false;
 
@@ -47,7 +49,22 @@ export class CommentSidePanel {
 
     parent.appendChild(this.root);
 
-    this.unsubscribe = this.opts.commentStore.onChange(() => this.render());
+    // Re-render on either comment-shape changes OR document text changes —
+    // the latter is needed so anchor previews update live (e.g. a thread
+    // whose anchored text gets deleted should flip to "(anchored text
+    // deleted)" without waiting for the next comment mutation). Coalesce
+    // multiple notifications per tick via a microtask flag.
+    const queueRender = (): void => {
+      if (this.renderQueued || !this.isOpen()) return;
+      this.renderQueued = true;
+      queueMicrotask(() => {
+        this.renderQueued = false;
+        if (this.isOpen()) this.render();
+      });
+    };
+    this.unsubscribe = this.opts.commentStore.onChange(queueRender);
+    this.docUpdateHandler = queueRender;
+    this.opts.ydoc.on('afterAllTransactions', this.docUpdateHandler);
   }
 
   toggle(): void {
@@ -72,6 +89,7 @@ export class CommentSidePanel {
 
   destroy(): void {
     this.unsubscribe?.();
+    if (this.docUpdateHandler) this.opts.ydoc.off('afterAllTransactions', this.docUpdateHandler);
     this.root.remove();
   }
 
