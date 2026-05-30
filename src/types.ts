@@ -95,6 +95,10 @@ export interface PublicIdentitySnapshot {
   publicKey: JsonWebKey;
 }
 
+// Re-export the comment shapes that ride along in the proof so callers can
+// type proof.comments without importing from src/comments/types.
+export type { CommentThread, Comment, CommentBundle } from './comments/types';
+
 // ─── Proof File ────────────────────────────────────────────────────
 
 // Schema versions:
@@ -114,4 +118,9 @@ export interface ProofFile {
   timestampAnchors: TimestampAnchor[];
   finalDocument: string;
   finalSignature: string;
+  // Optional review activity (Phase 3). Each comment is signed independently
+  // and verifies against the roster's per-author public keys. Proofs from
+  // before this field was added simply omit it; the verifier degrades
+  // cleanly.
+  comments?: import('./comments/types').CommentBundle;
 }
