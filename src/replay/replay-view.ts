@@ -6,6 +6,13 @@ import { createEditor } from '../editor/setup';
 import { ReplayEngine } from './replay-engine';
 import { authorDecorationExtension, addAuthorMark, clearAuthorMarks } from './author-decoration';
 import { base64ToBytes } from '../editor/yjs-bytes';
+import { CommentStore } from '../comments/comment-store';
+import {
+  commentDecorationExtension,
+  buildAnchorPreviews,
+  setThreadAnchors,
+} from '../comments/decorations';
+import type { CommentBundle } from '../comments/types';
 
 const PALETTE_SIZE = 6;
 type Mode = 'unified' | 'tracks';
@@ -20,6 +27,12 @@ interface Surface {
   view: EditorView;
   container: HTMLElement;
   authorThumbprint?: string;
+  // Read-only CommentStore bound to this surface's Y.Doc. Loaded with the
+  // proof's comment bundle (filtered to that author's authored comments on
+  // a track surface) so the decoration extension can resolve anchors against
+  // the same CRDT items the replay Y.Doc was reconstructed from. null when
+  // the proof has no comments.
+  commentStore?: CommentStore | null;
   // Tracks-mode-only counters. An event is "resolved" when applying its
   // yjsUpdate to this surface's Y.Doc grew/shrunk Y.Text by exactly the
   // (inserted.length - deleted.length) the author originally produced. It's
@@ -214,8 +227,11 @@ export class ReplayView {
     this.engine?.pause();
     this.tearDownSurfaces();
 
-    // Merged surface is always present, in both modes.
+    // Merged surface is always present, in both modes. Seed its CommentStore
+    // with the full bundle (every author's comments) and push initial anchor
+    // previews so threads show up immediately on load.
     this.mergedSurface = this.buildSurface(this.mergedHost);
+    this.seedSurfaceComments(this.mergedSurface, this.proof.comments);
 
     if (mode === 'tracks') {
       this.tracksHost.style.display = 'flex';
@@ -257,6 +273,11 @@ export class ReplayView {
         this.tracksHost.appendChild(trackWrap);
         const surface = this.buildSurface(body, thumb);
         surface.statusEl = status;
+        // Per-author track: seed with comments filtered to threads the author owns.
+        if (this.proof.comments) {
+          const filtered = this.filterBundleForAuthor(this.proof.comments, thumb);
+          this.seedSurfaceComments(surface, filtered);
+        }
         this.trackSurfaces.push(surface);
         this.trackByAuthor.set(thumb, surface);
       }
@@ -281,6 +302,35 @@ export class ReplayView {
     };
     this.engine = engine;
     this.timeLabel.textContent = `0 / ${this.proof.events.length}`;
+  }
+
+  // Filter the proof's comment bundle down to one author's authored
+  // comments (and the threads those comments root). Used to seed a track
+  // surface's read-only CommentStore so each track only shows the
+  // comments by its own author. The "authored by X" filter is based on
+  // each comment's authorThumbprint; threads anchor follows from the root
+  // comment's author.
+  private filterBundleForAuthor(
+    bundle: CommentBundle,
+    authorThumbprint: string,
+  ): CommentBundle {
+    const threadsByAuthor: typeof bundle.threads = [];
+    const commentsByAuthor: typeof bundle.comments = [];
+    for (const t of bundle.threads) {
+      const root = bundle.comments.find((c) => c.id === t.rootCommentId);
+      if (root && root.authorThumbprint === authorThumbprint) {
+        threadsByAuthor.push(t);
+      }
+    }
+    const includedThreadIds = new Set(threadsByAuthor.map((t) => t.id));
+    for (const c of bundle.comments) {
+      // Include the entire thread's comments if THIS author owns the thread.
+      // (Track shows that author's thread + every reply on it, so reviewers
+      // see context. Alternative: filter to comments authored by this author
+      // only, but that loses reply context.)
+      if (includedThreadIds.has(c.threadId)) commentsByAuthor.push(c);
+    }
+    return { threads: threadsByAuthor, comments: commentsByAuthor };
   }
 
   // Build a single editor surface bound to a fresh Y.Doc. Read-only; author
@@ -316,11 +366,31 @@ export class ReplayView {
       }
     });
 
+    // Read-only CommentStore bound to this surface's Y.Doc. Filled below
+    // once the surface is constructed and we know which comments to show.
+    // identity=null = mutations throw, which is what we want for replay.
+    const commentStore: CommentStore | null = this.proof?.comments
+      ? new CommentStore(ydoc, ytext, null)
+      : null;
+
+    const authorIndexLookup = (thumb: string) => this.authorIndex.get(thumb) ?? 0;
+    const extensions: import('@codemirror/state').Extension[] = [
+      authorDecorationExtension(),
+      authorMarkExt,
+    ];
+    if (commentStore) {
+      // Comment decorations: underlines + click-to-no-op (no side panel in
+      // Replay; the Verify tab is the source of truth for thread detail).
+      extensions.push(
+        commentDecorationExtension(commentStore, authorIndexLookup, () => {}),
+      );
+    }
+
     const view = createEditor(
       container,
       ytext,
       awareness,
-      [authorDecorationExtension(), authorMarkExt],
+      extensions,
       true,
     );
     return {
@@ -328,6 +398,7 @@ export class ReplayView {
       appliedCount: 0,
       resolvedCount: 0,
       statusEl: null,
+      commentStore,
     };
   }
 
@@ -355,6 +426,9 @@ export class ReplayView {
     } finally {
       this.engine.currentAuthorThumbprint = null;
     }
+    // Anchors move with the doc; re-resolve and push updated previews onto
+    // each surface's decoration state. Cheap relative to applyUpdateV2.
+    this.refreshAllCommentDecorations();
   }
 
   private updateTrackStatus(surface: Surface): void {
@@ -364,6 +438,41 @@ export class ReplayView {
     surface.statusEl.textContent = buffered > 0
       ? `${surface.appliedCount}/${total} applied · ${buffered} buffered (cross-author dep)`
       : `${surface.appliedCount}/${total} applied`;
+  }
+
+  // Push the comment bundle into a surface's read-only CommentStore and
+  // dispatch the initial anchor previews onto the editor's decoration state.
+  // Anchor positions are resolved against the surface's CURRENT Y.Doc — for
+  // the merged surface that's the full reconstructed doc; for a track it's
+  // the per-author CRDT slice (so anchors only resolve if the underlying
+  // items exist on that track).
+  private seedSurfaceComments(surface: Surface, bundle: CommentBundle | undefined): void {
+    if (!surface.commentStore || !bundle) return;
+    surface.commentStore.load(bundle);
+    const previews = buildAnchorPreviews(
+      surface.commentStore,
+      (thumb) => this.authorIndex.get(thumb) ?? 0,
+    );
+    surface.view.dispatch({ effects: setThreadAnchors.of(previews) });
+  }
+
+  // Refresh decoration state for every surface — call whenever the surface's
+  // Y.Doc has changed (an event apply, a seek-reset, etc.) so anchors re-
+  // resolve against the new doc state. Read-only and cheap.
+  private refreshAllCommentDecorations(): void {
+    if (this.mergedSurface) {
+      this.refreshSurfaceComments(this.mergedSurface);
+    }
+    for (const t of this.trackSurfaces) this.refreshSurfaceComments(t);
+  }
+
+  private refreshSurfaceComments(surface: Surface): void {
+    if (!surface.commentStore) return;
+    const previews = buildAnchorPreviews(
+      surface.commentStore,
+      (thumb) => this.authorIndex.get(thumb) ?? 0,
+    );
+    surface.view.dispatch({ effects: setThreadAnchors.of(previews) });
   }
 
   // Apply a single event to a surface. v2 path = applyUpdateV2 (CRDT correct,
@@ -415,11 +524,16 @@ export class ReplayView {
     this.tearDownSurfaces();
 
     this.mergedSurface = this.buildSurface(mergedContainer);
+    this.seedSurfaceComments(this.mergedSurface, this.proof?.comments);
     if (this.mode === 'tracks') {
       for (const t of trackInfo) {
         const surface = this.buildSurface(t.container, t.thumb);
         this.trackSurfaces.push(surface);
         if (t.thumb) this.trackByAuthor.set(t.thumb, surface);
+        if (this.proof?.comments && t.thumb) {
+          const filtered = this.filterBundleForAuthor(this.proof.comments, t.thumb);
+          this.seedSurfaceComments(surface, filtered);
+        }
       }
     }
   }

@@ -508,21 +508,25 @@ export class SessionManager {
 
   private async cloudPersist(): Promise<void> {
     if (this._state !== 'recording') return;
-    const currentCount = this.getTotalEventCount();
-    if (currentCount === this.lastCloudSaveCount) return;
+    if (this.getTotalEventCount() === this.lastCloudSaveCount) return;
 
     await this.localChain.flush();
+    // Snapshot at the save boundary, mirroring the persistNow fix. Without
+    // this, the cloud tier reports "saved at count N" but actually saved a
+    // smaller snapshot, and the next mid-burst save short-circuits.
+    const snapshot = this.getUnionEvents();
+    const countAtSave = snapshot.length;
     this.onCloudSync?.('saving');
     try {
       await cloudSave(
         this.metadata,
-        this.getUnionEvents(),
+        snapshot,
         this.checkpoints,
         this.anchors,
         this.getDocument(),
         this.getComments(),
       );
-      this.lastCloudSaveCount = currentCount;
+      this.lastCloudSaveCount = countAtSave;
       this.lastCloudSaveAt = Date.now();
       this.onCloudSync?.('saved');
     } catch (err) {
@@ -533,21 +537,31 @@ export class SessionManager {
   private async persistNow(): Promise<void> {
     if (this._state !== 'recording') return;
     if (this.persistInFlight) return;
-    const countAtStart = this.getTotalEventCount();
-    if (countAtStart === this.lastPersistedCount) return;
+    if (this.getTotalEventCount() === this.lastPersistedCount) return;
 
     this.persistInFlight = true;
     try {
+      // Flush first so every just-handled keystroke gets a hash and lands in
+      // the chain before we snapshot it. Then capture the snapshot AT THE
+      // SAVE BOUNDARY — what we actually hand to saveSession — and use that
+      // count as lastPersistedCount. The previous version captured
+      // getTotalEventCount() AFTER saveSession returned, which incorporated
+      // any events that arrived during the await; subsequent persistNow calls
+      // then short-circuited (countAtStart === lastPersistedCount), and
+      // those mid-save events never made it to disk. The IDB tier indicator
+      // would freeze at 70s+ while alice happily typed away.
       await this.localChain.flush();
+      const snapshot = this.getUnionEvents();
+      const countAtSave = snapshot.length;
       await saveSession(
         this.metadata,
-        this.getUnionEvents(),
+        snapshot,
         this.checkpoints,
         this.anchors,
         this.getDocument(),
         this.getComments(),
       );
-      this.lastPersistedCount = this.getTotalEventCount();
+      this.lastPersistedCount = countAtSave;
       this.lastIdbSaveAt = Date.now();
     } catch (err) {
       console.warn('[thesis] IndexedDB save failed:', err);
@@ -555,6 +569,9 @@ export class SessionManager {
       this.persistInFlight = false;
     }
 
+    // If new events landed during the save, immediately re-fire so we keep
+    // up with bursty typing. queueMicrotask defers to the next tick so the
+    // recursion is bounded by the event loop, not the call stack.
     if (this.getTotalEventCount() > this.lastPersistedCount) {
       queueMicrotask(() => this.persistNow());
     }

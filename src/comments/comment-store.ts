@@ -15,12 +15,16 @@ const COMMENTS_KEY = 'comments';
 export class CommentStore {
   private readonly ydoc: Y.Doc;
   private readonly yText: Y.Text;
-  private readonly identity: IdentityStore;
+  // Identity is required for write operations (createThread, reply, resolve)
+  // since those produce signed payloads, but read-only consumers (the Replay
+  // tab loading a proof bundle for display) don't need one. Setting it to
+  // null gives a read-only store; mutation methods throw if called against it.
+  private readonly identity: IdentityStore | null;
   private threadsMap: Y.Map<CommentThread>;
   private commentsMap: Y.Map<Comment>;
   private changeListeners: Set<() => void> = new Set();
 
-  constructor(ydoc: Y.Doc, yText: Y.Text, identity: IdentityStore) {
+  constructor(ydoc: Y.Doc, yText: Y.Text, identity: IdentityStore | null) {
     this.ydoc = ydoc;
     this.yText = yText;
     this.identity = identity;
@@ -32,6 +36,12 @@ export class CommentStore {
     this.commentsMap.observe(fire);
   }
 
+  // Throws if called on a read-only store (constructed with identity=null).
+  private requireIdentity(method: string): IdentityStore {
+    if (!this.identity) throw new Error(`CommentStore.${method} requires an identity; this store is read-only`);
+    return this.identity;
+  }
+
   // Create a new thread anchored at [from, to). Atomic: thread + root comment
   // both inserted in a single ydoc.transact so peers see them appear together.
   // Returns the resulting thread (with anchors encoded) so the caller can
@@ -40,7 +50,8 @@ export class CommentStore {
     if (range.from > range.to) throw new Error('range.from must be <= range.to');
     if (!body.trim()) throw new Error('Empty comment body');
 
-    const self = this.identity.getSelf();
+    const identity = this.requireIdentity('createThread');
+    const self = identity.getSelf();
     const threadId = crypto.randomUUID();
     const rootCommentId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -60,7 +71,7 @@ export class CommentStore {
       createdAt,
       signature: '', // filled after signing
     };
-    rootComment.signature = await this.identity.signWithSelf(commentSigningPayload(rootComment));
+    rootComment.signature = await identity.signWithSelf(commentSigningPayload(rootComment));
 
     const thread: CommentThread = {
       id: threadId,
@@ -87,7 +98,8 @@ export class CommentStore {
     const thread = this.threadsMap.get(threadId);
     if (!thread) throw new Error(`No such thread: ${threadId}`);
 
-    const self = this.identity.getSelf();
+    const identity = this.requireIdentity('reply');
+    const self = identity.getSelf();
     const commentId = crypto.randomUUID();
     const comment: Comment = {
       id: commentId,
@@ -99,7 +111,7 @@ export class CommentStore {
       createdAt: new Date().toISOString(),
       signature: '',
     };
-    comment.signature = await this.identity.signWithSelf(commentSigningPayload(comment));
+    comment.signature = await identity.signWithSelf(commentSigningPayload(comment));
 
     this.commentsMap.set(commentId, comment);
     return comment;
@@ -108,7 +120,8 @@ export class CommentStore {
   resolveThread(threadId: string): void {
     const thread = this.threadsMap.get(threadId);
     if (!thread || thread.resolved) return;
-    const self = this.identity.getSelf();
+    const identity = this.requireIdentity('resolveThread');
+    const self = identity.getSelf();
     this.threadsMap.set(threadId, {
       ...thread,
       resolved: true,
