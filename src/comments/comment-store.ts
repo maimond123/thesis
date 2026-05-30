@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import type { IdentityStore } from '../identity/identity-store';
 import { bytesToBase64, base64ToBytes } from '../editor/yjs-bytes';
-import { canonicalJsonStringify } from '../crypto/hash-chain';
+import { signComment } from './comment-signing';
 import type { CommentThread, Comment, CommentsBundle } from './types';
 
 const THREADS_KEY = 'comment-threads';
@@ -47,13 +47,16 @@ export class CommentStore {
     const commentId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
 
-    const signature = await this.signCommentFields({
-      authorThumbprint: self.thumbprint,
-      threadId,
-      parentId: null,
-      body,
-      createdAt,
-    });
+    const signature = await signComment(
+      {
+        authorThumbprint: self.thumbprint,
+        threadId,
+        parentId: null,
+        body,
+        createdAt,
+      },
+      (data) => this.identity.signWithSelf(data),
+    );
 
     const thread: CommentThread = {
       id: threadId,
@@ -91,13 +94,16 @@ export class CommentStore {
     const createdAt = new Date().toISOString();
     const parentId = this.latestCommentId(threadId) ?? thread.rootCommentId;
 
-    const signature = await this.signCommentFields({
-      authorThumbprint: self.thumbprint,
-      threadId,
-      parentId,
-      body,
-      createdAt,
-    });
+    const signature = await signComment(
+      {
+        authorThumbprint: self.thumbprint,
+        threadId,
+        parentId,
+        body,
+        createdAt,
+      },
+      (data) => this.identity.signWithSelf(data),
+    );
 
     const comment: Comment = {
       id: commentId,
@@ -197,23 +203,6 @@ export class CommentStore {
   private encodeAnchor(pos: number): string {
     const rel = Y.createRelativePositionFromTypeIndex(this.yText, pos);
     return bytesToBase64(Y.encodeRelativePosition(rel));
-  }
-
-  private async signCommentFields(fields: {
-    authorThumbprint: string;
-    threadId: string;
-    parentId: string | null;
-    body: string;
-    createdAt: string;
-  }): Promise<string> {
-    const payload = canonicalJsonStringify({
-      authorThumbprint: fields.authorThumbprint,
-      threadId: fields.threadId,
-      parentId: fields.parentId,
-      body: fields.body,
-      createdAt: fields.createdAt,
-    });
-    return this.identity.signWithSelf(payload);
   }
 
   private latestCommentId(threadId: string): string | null {
