@@ -1,7 +1,16 @@
 import { StateEffect, StateField, type Extension } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from '@codemirror/view';
-import type { CommentStore } from './comment-store';
 import type { CommentThread, Comment } from './types';
+
+// Decoupling the decoration extension from CommentStore so the replay view
+// can feed it a static data source built from proof.comments instead of a
+// live Y.Doc-backed store.
+export interface CommentDataSource {
+  listThreads(): CommentThread[];
+  listComments(threadId: string): Comment[];
+  resolveAnchor(thread: CommentThread): { from: number; to: number } | null;
+  onChange(cb: () => void): () => void;
+}
 
 const PALETTE_SIZE = 6;
 
@@ -56,13 +65,13 @@ class DotWidget extends WidgetType {
   }
 }
 
-function buildDecorations(commentStore: CommentStore): DecorationSet {
+function buildDecorations(source: CommentDataSource): DecorationSet {
   const items: Array<{ thread: CommentThread; root: Comment | undefined; range: { from: number; to: number } }> = [];
-  for (const thread of commentStore.listThreads()) {
+  for (const thread of source.listThreads()) {
     if (thread.resolved) continue; // resolved threads collapse in the side panel and don't decorate the doc
-    const range = commentStore.resolveAnchor(thread);
+    const range = source.resolveAnchor(thread);
     if (!range) continue;
-    const root = commentStore.listComments(thread.id)[0];
+    const root = source.listComments(thread.id)[0];
     items.push({ thread, root, range });
   }
   // Sort by anchor start, then end — Decoration.set will normalize, but sorting
@@ -100,39 +109,54 @@ function tooltipFor(root: Comment | undefined, thread: CommentThread): string {
 }
 
 export interface CommentDecorationsOptions {
-  commentStore: CommentStore;
-  onThreadClick: (threadId: string) => void;
+  source: CommentDataSource;
+  onThreadClick?: (threadId: string) => void; // omit for read-only contexts (e.g. Replay)
 }
 
 export function commentDecorationsExtension(opts: CommentDecorationsOptions): Extension {
   const refreshOnStoreChange = ViewPlugin.fromClass(
     class {
       private unsubscribe: () => void;
+      private disposed = false;
       constructor(view: EditorView) {
-        this.unsubscribe = opts.commentStore.onChange(() => {
-          view.dispatch({ effects: setCommentDecorations.of(buildDecorations(opts.commentStore)) });
-        });
-        // Initial population on next tick so the view is ready.
-        queueMicrotask(() => {
-          view.dispatch({ effects: setCommentDecorations.of(buildDecorations(opts.commentStore)) });
-        });
+        const dispatchUpdate = (): void => {
+          // Defer to a microtask: the comment source may notify synchronously
+          // from inside a Yjs transaction (replay surfaces wire onChange to
+          // ydoc.updateV2), and y-codemirror is already in the middle of a
+          // CodeMirror update at that moment — CM6 forbids re-entrant dispatch.
+          // The deferred dispatch lands after the in-flight transaction settles.
+          queueMicrotask(() => {
+            if (this.disposed) return;
+            view.dispatch({ effects: setCommentDecorations.of(buildDecorations(opts.source)) });
+          });
+        };
+        this.unsubscribe = opts.source.onChange(dispatchUpdate);
+        dispatchUpdate(); // initial paint
       }
       update(_u: ViewUpdate): void { /* mapping handled by the StateField */ }
-      destroy(): void { this.unsubscribe(); }
+      destroy(): void {
+        this.disposed = true;
+        this.unsubscribe();
+      }
     },
   );
 
-  const clickHandler = EditorView.domEventHandlers({
-    click(event) {
-      const target = event.target instanceof Element ? event.target : null;
-      const el = target?.closest('[data-thread-id]');
-      const threadId = el instanceof HTMLElement ? el.dataset.threadId : null;
-      if (!threadId) return false;
-      event.preventDefault();
-      opts.onThreadClick(threadId);
-      return true;
-    },
-  });
+  const extensions: Extension[] = [commentField, refreshOnStoreChange];
 
-  return [commentField, refreshOnStoreChange, clickHandler];
+  if (opts.onThreadClick) {
+    const onClick = opts.onThreadClick;
+    extensions.push(EditorView.domEventHandlers({
+      click(event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const el = target?.closest('[data-thread-id]');
+        const threadId = el instanceof HTMLElement ? el.dataset.threadId : null;
+        if (!threadId) return false;
+        event.preventDefault();
+        onClick(threadId);
+        return true;
+      },
+    }));
+  }
+
+  return extensions;
 }

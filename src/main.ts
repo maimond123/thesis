@@ -505,7 +505,7 @@ const captureExtension = keystrokeCaptureExtension((raw) => {
 });
 
 const commentDecoExt = commentDecorationsExtension({
-  commentStore,
+  source: commentStore,
   onThreadClick: (threadId) => {
     commentSidePanel.open(threadId);
     commentsBtn.classList.add('btn-primary');
@@ -515,7 +515,10 @@ const commentDecoExt = commentDecorationsExtension({
 editorView = createEditor(editorContainer, yText, awareness, [captureExtension, composeUI.extension(), commentDecoExt]);
 
 // Expose for console-driven verification during development.
-(window as unknown as { __thesisComments?: CommentStore }).__thesisComments = commentStore;
+const wnd = window as unknown as Record<string, unknown>;
+wnd.__thesisComments = commentStore;
+wnd.__thesisSession = session;
+wnd.__thesisReplay = replayView;
 
 // ─── Session callbacks ─────────────────────────────────────────────
 

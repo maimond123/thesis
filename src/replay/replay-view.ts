@@ -7,6 +7,9 @@ import { createEditor } from '../editor/setup';
 import { ReplayEngine } from './replay-engine';
 import { authorDecorationExtension, addAuthorMark, clearAuthorMarks } from './author-decoration';
 import { base64ToBytes } from '../editor/yjs-bytes';
+import { commentDecorationsExtension } from '../comments/decorations';
+import { ProofCommentSource } from './comment-source';
+import type { CommentThread, Comment } from '../comments/types';
 
 const PALETTE_SIZE = 6;
 type Mode = 'unified' | 'tracks';
@@ -20,6 +23,7 @@ interface Surface {
   view: EditorView;
   container: HTMLElement;
   authorThumbprint?: string;   // set in tracks mode
+  commentSource: ProofCommentSource | null;
 }
 
 export class ReplayView {
@@ -37,6 +41,8 @@ export class ReplayView {
   private proof: ProofFile | null = null;
   private authorIndex: Map<string, number> = new Map();
   private currentSpeed = 1;
+  private commentThreads: CommentThread[] = [];
+  private commentList: Comment[] = [];
 
   // Active surfaces — 1 entry in unified, N in tracks.
   private surfaces: Surface[] = [];
@@ -147,6 +153,8 @@ export class ReplayView {
 
   loadProof(proof: ProofFile): void {
     this.proof = proof;
+    this.commentThreads = proof.comments?.threads ?? [];
+    this.commentList = proof.comments?.comments ?? [];
     this.emptyState.style.display = 'none';
     this.surfaceHost.style.display = 'flex';
 
@@ -266,14 +274,32 @@ export class ReplayView {
       }
     });
 
+    // Comment decorations (read-only): per-author surfaces filter to threads
+    // whose root comment was authored by this track's author; the unified
+    // surface shows everything. Either way, an anchor only resolves if the
+    // CRDT items it references exist in this surface's Y.Doc — so threads
+    // whose anchored text hasn't been replayed yet decorate nothing.
+    let commentSource: ProofCommentSource | null = null;
+    const extraExtensions = [authorDecorationExtension(), authorMarkExt];
+    if (this.commentThreads.length > 0) {
+      const filteredThreads = authorThumbprint
+        ? this.commentThreads.filter((t) => {
+            const root = this.commentList.find((c) => c.id === t.rootCommentId);
+            return root?.authorThumbprint === authorThumbprint;
+          })
+        : this.commentThreads;
+      commentSource = new ProofCommentSource(ydoc, filteredThreads, this.commentList);
+      extraExtensions.push(commentDecorationsExtension({ source: commentSource }));
+    }
+
     const view = createEditor(
       container,
       ytext,
       awareness,
-      [authorDecorationExtension(), authorMarkExt],
+      extraExtensions,
       true,
     );
-    return { ydoc, ytext, awareness, view, container, authorThumbprint };
+    return { ydoc, ytext, awareness, view, container, authorThumbprint, commentSource };
   }
 
   private dispatchEvent(event: AuthoringEvent): void {
@@ -347,6 +373,7 @@ export class ReplayView {
   private tearDownSurfaces(): void {
     for (const s of this.surfaces) {
       try { s.view.dispatch({ effects: clearAuthorMarks.of(undefined) }); } catch { /* ok */ }
+      s.commentSource?.destroy();
       s.view.destroy();
       s.ydoc.destroy();
     }
