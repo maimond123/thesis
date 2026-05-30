@@ -428,12 +428,25 @@ export class ReplayView {
     }
     // Anchors move with the doc; re-resolve and push updated previews onto
     // each surface's decoration state. Cheap relative to applyUpdateV2.
-    // Pass THIS event's wallClock so the cutoff reflects "up to and
-    // including the just-applied event" — engine.currentIndex isn't
-    // incremented until after dispatchEvent returns, so reading the
-    // default cutoff would lag by one event (the previously-applied one).
-    const explicitCutoff = event.wallClock
-      ?? (this.proof ? Date.parse(this.proof.session.startTime) : 0);
+    //
+    // Cutoff policy:
+    //   * Final event of the timeline → Infinity. Comments often have
+    //     createdAt > the last keystroke's wallClock (the writer added
+    //     them after typing finished, or after end-of-session); we want
+    //     them to show up at the end of replay, not stay hidden forever.
+    //   * Any other event → that event's wallClock. Threads with
+    //     createdAt <= cutoff are visible (the "scrubbed past their
+    //     creation moment" state); later ones stay hidden.
+    //
+    // We use the event-vs-last check instead of consulting engine.current
+    // because the engine increments currentIndex AFTER dispatchEvent
+    // returns; reading it here would lag by one.
+    const isLastEvent =
+      this.proof && event === this.proof.events[this.proof.events.length - 1];
+    const explicitCutoff = isLastEvent
+      ? Number.POSITIVE_INFINITY
+      : (event.wallClock
+        ?? (this.proof ? Date.parse(this.proof.session.startTime) : 0));
     this.refreshAllCommentDecorations(explicitCutoff);
   }
 
