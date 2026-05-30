@@ -15,6 +15,8 @@ import { IdentityUI } from './identity/identity-ui';
 import { PartyKitSync, type ChainMessage } from './sync/partykit-sync';
 import { FileIndex } from './files/file-index';
 import { FileSidebar } from './files/sidebar';
+import { CommentStore } from './comments/comment-store';
+import { ComposeUI } from './comments/compose-ui';
 import type { ProofFile } from './types';
 
 // File routing: the document being edited is identified by the URL hash. So
@@ -86,6 +88,14 @@ await fileIndex.recordVisit(SLICE1_FILE_ID);
 const ydoc = new Y.Doc();
 const yText = ydoc.getText('main');
 const awareness = new Awareness(ydoc);
+
+// CommentStore wraps two Y.Maps on the same Y.Doc — y-partykit syncs them
+// alongside yText with no extra channel needed.
+const commentStore = new CommentStore(ydoc, yText, identityStore);
+const composeUI = new ComposeUI({
+  commentStore,
+  getView: () => editorView,
+});
 
 function publishLocalAwareness(): void {
   const s = identityStore.getSelf();
@@ -466,7 +476,10 @@ const captureExtension = keystrokeCaptureExtension((raw) => {
   session.handleEvent(raw);
 });
 
-editorView = createEditor(editorContainer, yText, awareness, [captureExtension]);
+editorView = createEditor(editorContainer, yText, awareness, [captureExtension, composeUI.extension()]);
+
+// Expose for console-driven verification during development.
+(window as unknown as { __thesisComments?: CommentStore }).__thesisComments = commentStore;
 
 // ─── Session callbacks ─────────────────────────────────────────────
 
