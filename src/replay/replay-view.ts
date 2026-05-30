@@ -1,7 +1,6 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { EditorView } from '@codemirror/view';
-import { Transaction } from '@codemirror/state';
 import type { ProofFile, AuthoringEvent } from '../types';
 import { createEditor } from '../editor/setup';
 import { ReplayEngine } from './replay-engine';
@@ -245,9 +244,14 @@ export class ReplayView {
     const ytext = ydoc.getText('main');
     const awareness = new Awareness(ydoc);
 
-    // Author-mark dispatcher for unified mode: when a Yjs update is applied
-    // (Transaction.remote === true), tag the new range with the colour of the
-    // author currently being applied.
+    // Author-mark dispatcher for unified mode: when the engine applies an
+    // event via Y.applyUpdateV2 it sets currentAuthorThumbprint, which causes
+    // y-codemirror's text observer to dispatch a CM transaction reflecting
+    // the insert. Any CM update that lands while currentAuthorThumbprint is
+    // set is, by construction, that observer's dispatch — so we tag the
+    // newly inserted range with the author's palette index. (y-codemirror
+    // marks its dispatches with ySyncAnnotation, not Transaction.remote, so
+    // a remote-annotation filter would never fire here.)
     const authorMarkExt = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
       const thumb = this.engine?.currentAuthorThumbprint;
@@ -255,7 +259,6 @@ export class ReplayView {
       const idx = this.authorIndex.get(thumb);
       if (idx === undefined) return;
       for (const tr of update.transactions) {
-        if (!tr.annotation(Transaction.remote)) continue;
         tr.changes.iterChanges((_fromA, _toA, fromB, toB) => {
           if (toB > fromB) {
             update.view.dispatch({
