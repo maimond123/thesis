@@ -10,7 +10,12 @@ import { cloudSave, cloudLoad, cloudList } from './cloud-sync';
 import type { IdentityStore } from '../identity/identity-store';
 import { base64ToBytes } from '../editor/yjs-bytes';
 
-const APP_VERSION = '0.3.0';
+// 0.4.0 — first release that captures the binary Yjs update alongside each
+// signed event. Recovery + replay + verifier all branch on event shape (every
+// event carrying a yjsUpdate) rather than on this string, so a session
+// stamped 0.4.0 but somehow missing yjsUpdates still falls back to the v1
+// paths safely.
+const APP_VERSION = '0.4.0';
 const CHECKPOINT_INTERVAL_MS = 60_000;
 const CHECKPOINT_EVENT_THRESHOLD = 500;
 const AUTOSAVE_INTERVAL_MS = 250;
@@ -455,7 +460,7 @@ export class SessionManager {
     ];
 
     return {
-      version: 1,
+      version: 2,
       session: {
         ...this.metadata,
         endTime: wallClock,
