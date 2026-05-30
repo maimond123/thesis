@@ -17,6 +17,7 @@ import { FileIndex } from './files/file-index';
 import { FileSidebar } from './files/sidebar';
 import { CommentStore } from './comments/comment-store';
 import { ComposeUI } from './comments/compose-ui';
+import { CommentSidePanel } from './comments/side-panel';
 import type { ProofFile } from './types';
 
 // File routing: the document being edited is identified by the URL hash. So
@@ -251,6 +252,11 @@ const importBtn = document.createElement('button');
 importBtn.className = 'btn';
 importBtn.textContent = 'Import Proof';
 
+const commentsBtn = document.createElement('button');
+commentsBtn.className = 'btn';
+commentsBtn.textContent = 'Comments';
+commentsBtn.title = 'Toggle the comments side panel';
+
 const loadSessionBtn = document.createElement('button');
 loadSessionBtn.className = 'btn';
 loadSessionBtn.textContent = 'Load Session';
@@ -268,6 +274,7 @@ toolbar.appendChild(loadSessionBtn);
 toolbar.appendChild(spacer);
 toolbar.appendChild(exportBtn);
 toolbar.appendChild(importBtn);
+toolbar.appendChild(commentsBtn);
 app.appendChild(toolbar);
 
 // Main area: sidebar + view container side by side.
@@ -290,10 +297,30 @@ editorPanel.id = 'editor-panel';
 // and the page so formatting actions are one click away.
 mountFormatBar(editorPanel, () => editorView);
 
+// Inside the Editor panel: the page on the left, optional Comments side panel
+// on the right. Both share the panel's vertical space below the format bar.
+const editorBody = document.createElement('div');
+editorBody.className = 'editor-body';
 const editorContainer = document.createElement('div');
 editorContainer.className = 'editor-container';
-editorPanel.appendChild(editorContainer);
+editorBody.appendChild(editorContainer);
+editorPanel.appendChild(editorBody);
 viewContainer.appendChild(editorPanel);
+
+const commentSidePanel = new CommentSidePanel(editorBody, {
+  commentStore,
+  ydoc,
+  onAnchorClick: (_thread, range) => {
+    if (!range || !editorView) return;
+    editorView.dispatch({ selection: { anchor: range.from, head: range.to }, scrollIntoView: true });
+    editorView.focus();
+  },
+});
+
+commentsBtn.addEventListener('click', () => {
+  commentSidePanel.toggle();
+  commentsBtn.classList.toggle('btn-primary', commentSidePanel.isOpen());
+});
 
 // Replay panel
 replayView = new ReplayView(viewContainer);
