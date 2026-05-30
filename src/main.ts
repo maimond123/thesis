@@ -3,6 +3,15 @@ import { Awareness } from 'y-protocols/awareness';
 import { createEditor } from './editor/setup';
 import { captureContextExtension, consumePendingCaptureContext } from './editor/keystroke-plugin';
 import { bytesToBase64 } from './editor/yjs-bytes';
+import { CommentStore } from './comments/comment-store';
+import {
+  commentDecorationExtension,
+  buildAnchorPreviews,
+  setThreadAnchors,
+  setActiveThread,
+} from './comments/decorations';
+import { mountComposePill, composeUpdateListener } from './comments/compose-ui';
+import { mountCommentsSidePanel, type CommentsSidePanel } from './comments/side-panel';
 import { mountFormatBar } from './editor/format-bar';
 import { SessionManager } from './session/session-manager';
 import { downloadProof } from './export/exporter';
@@ -106,6 +115,23 @@ const session = new SessionManager(identityStore, SLICE1_FILE_ID);
 let editorView: ReturnType<typeof createEditor> | null = null;
 let lastProof: ProofFile | null = null;
 let replayView: ReplayView;
+
+// Comments — review activity layered on top of the keystroke chain. Lives in
+// the same Y.Doc so y-partykit syncs threads + replies to peers for free.
+// Built after the editor view exists so the compose pill has a CM view to
+// position itself against, but the store itself depends only on the Y.Doc.
+const commentStore = new CommentStore(ydoc, yText, identityStore);
+// Stable per-author colour for comment underlines. Reuses the same palette
+// the Replay author marks use; index by first appearance among comment
+// authors (so the first author to comment is cm-author-0 etc.).
+const commentAuthorIndex = new Map<string, number>();
+function colorIndexForCommentAuthor(thumb: string): number {
+  if (!commentAuthorIndex.has(thumb)) {
+    commentAuthorIndex.set(thumb, commentAuthorIndex.size % 6);
+  }
+  return commentAuthorIndex.get(thumb)!;
+}
+let sidePanel: CommentsSidePanel | null = null;
 
 // ─── PartyKit live sync ────────────────────────────────────────────
 let partyStatus: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
@@ -241,6 +267,11 @@ const importBtn = document.createElement('button');
 importBtn.className = 'btn';
 importBtn.textContent = 'Import Proof';
 
+const commentsBtn = document.createElement('button');
+commentsBtn.className = 'btn';
+commentsBtn.textContent = 'Comments';
+commentsBtn.title = 'Show review threads on this document';
+
 const loadSessionBtn = document.createElement('button');
 loadSessionBtn.className = 'btn';
 loadSessionBtn.textContent = 'Load Session';
@@ -258,7 +289,18 @@ toolbar.appendChild(loadSessionBtn);
 toolbar.appendChild(spacer);
 toolbar.appendChild(exportBtn);
 toolbar.appendChild(importBtn);
+toolbar.appendChild(commentsBtn);
 app.appendChild(toolbar);
+
+commentsBtn.addEventListener('click', () => sidePanel?.toggle());
+
+// Test-only hooks: scripts/test-comments-e2e.mjs reaches into the page to
+// create threads and verify signatures without simulating the pill click.
+// Cheap to expose and the references are read-only beyond the methods we
+// already document publicly.
+(window as unknown as Record<string, unknown>).__commentStoreForTests = commentStore;
+(window as unknown as Record<string, unknown>).__identityStoreForTests = identityStore;
+(window as unknown as Record<string, unknown>).__sessionForTests = session;
 
 // Main area: sidebar + view container side by side.
 const mainArea = document.createElement('div');
@@ -479,7 +521,74 @@ ydoc.on('updateV2', (update: Uint8Array, origin: unknown) => {
   });
 });
 
-editorView = createEditor(editorContainer, yText, awareness, [captureContextExtension()]);
+// Build the comment extensions BEFORE createEditor so they go in as proper
+// CM extensions (StateField + decorations + click handler + selection
+// listener for the pill). The selection listener is wired to feed the
+// compose-pill controller created right after the editor view exists.
+let composeOnSelection: ((sel: { from: number; to: number } | null) => void) | null = null;
+const composeListenerExt = composeUpdateListener((sel) => composeOnSelection?.(sel));
+const commentDecoExt = commentDecorationExtension(
+  commentStore,
+  colorIndexForCommentAuthor,
+  (threadId) => { sidePanel?.open(threadId); },
+);
+
+editorView = createEditor(editorContainer, yText, awareness, [
+  captureContextExtension(),
+  commentDecoExt,
+  composeListenerExt,
+]);
+
+// Compose pill + side panel are DOM-level. The pill lives in document.body
+// so it can float over the editor; the side panel docks to the main viewport
+// container so it sits to the right of the editor area.
+const composeController = mountComposePill(editorView, commentStore, (threadId) => {
+  sidePanel?.open(threadId);
+});
+composeOnSelection = composeController.onSelectionChange;
+
+sidePanel = mountCommentsSidePanel(
+  mainArea,
+  commentStore,
+  identityStore,
+  (range) => {
+    const view = editorView!;
+    const docLen = view.state.doc.length;
+    const from = Math.max(0, Math.min(range.from, docLen));
+    const to = Math.max(from, Math.min(range.to, docLen));
+    return view.state.doc.sliceString(from, to).slice(0, 80);
+  },
+  (threadId) => {
+    if (editorView) editorView.dispatch({ effects: setActiveThread.of(threadId) });
+  },
+  (range) => {
+    if (!editorView) return;
+    editorView.dispatch({
+      selection: { anchor: range.from, head: range.to },
+      effects: [setActiveThread.of(null)],
+      scrollIntoView: true,
+    });
+    editorView.focus();
+  },
+);
+
+// Push the current thread/anchor preview list into the editor's decoration
+// state whenever the store changes (creation, reply, resolve, anchor drift
+// from concurrent edits). buildAnchorPreviews re-resolves anchors against
+// the live Y.Text on every call, so the underline tracks the doc state.
+function refreshCommentDecorations(): void {
+  if (!editorView) return;
+  const previews = buildAnchorPreviews(commentStore, colorIndexForCommentAuthor);
+  editorView.dispatch({ effects: setThreadAnchors.of(previews) });
+}
+commentStore.onChange(refreshCommentDecorations);
+refreshCommentDecorations();
+
+// Also refresh decorations when the doc itself changes (anchors may have
+// moved relative to text positions). updateListener at default Prec so it
+// runs after y-codemirror has reflected the change into Y.Text.
+editorView.dispatch({ effects: [] });   // touch the view so the extension is fully initialised
+window.requestAnimationFrame(() => refreshCommentDecorations());
 
 // ─── Session callbacks ─────────────────────────────────────────────
 

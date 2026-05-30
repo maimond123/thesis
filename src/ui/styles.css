@@ -1258,3 +1258,227 @@ html, body {
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* ─── Comments (Phase 3) ──────────────────────────────────────── */
+
+/* Floating pill above a non-empty selection. Anchored in body so it
+   floats over the editor without entering its DOM. */
+.comment-pill {
+  position: absolute;
+  z-index: 80;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  display: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.comment-pill:hover { filter: brightness(1.1); }
+
+/* Compose modal — also body-portal so positioning is in page coords. */
+.comment-compose-modal {
+  position: absolute;
+  z-index: 90;
+  width: 320px;
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-compose-text {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.comment-compose-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Inline underline for an unresolved thread's anchored range. cm-author-N
+   classes pull the same per-author colour palette the Replay marks use. */
+.cm-comment-underline {
+  text-decoration: underline wavy currentColor;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.cm-comment-active {
+  background: rgba(255, 213, 79, 0.18);   /* mild yellow tint when active */
+}
+
+/* Right-docked side panel. Slides in/out via .open class. */
+.comments-side-panel {
+  width: 0;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  transition: width 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.comments-side-panel.open {
+  width: 360px;
+}
+
+.comments-side-head {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.comments-side-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.4px;
+  color: var(--text);
+  flex: 1;
+}
+
+.comments-side-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.comments-side-close:hover { color: var(--text); }
+
+.comments-side-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 24px;
+}
+
+.comments-empty {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 16px 8px;
+  text-align: center;
+}
+
+.comments-thread {
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.comments-thread:hover { border-color: var(--accent); }
+.comments-thread.expanded { border-color: var(--accent); cursor: default; }
+.comments-thread.resolved { opacity: 0.7; }
+
+.comments-anchor-preview {
+  display: block;
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 0 6px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.comments-anchor-preview:hover { color: var(--accent); }
+
+.comments-comment {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.comments-anchor-preview + .comments-comment { border-top: none; }
+
+.comments-comment-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.comments-handle {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.comments-body {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.comments-replies {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.comments-reply-composer {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.comments-reply-text {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  background: var(--bg-surface);
+  color: var(--text);
+}
+
+.comments-reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.comments-resolved-sep {
+  margin: 16px 0 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
