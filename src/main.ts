@@ -2,6 +2,7 @@ import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { createEditor } from './editor/setup';
 import { keystrokeCaptureExtension } from './editor/keystroke-plugin';
+import { bytesToBase64 } from './editor/yjs-bytes';
 import { mountFormatBar } from './editor/format-bar';
 import { SessionManager } from './session/session-manager';
 import { downloadProof } from './export/exporter';
@@ -423,6 +424,30 @@ window.setInterval(refreshTiers, 1_000);
 let setCaptureEnabled: (v: boolean) => void = () => {};
 let isCaptureEnabled: () => boolean = () => true;
 
+// Pair each local CodeMirror keystroke with the Yjs binary update it produced,
+// so the proof file can replay the exact CRDT operation instead of relying on
+// position-based diffs (which scramble during concurrent multi-author edits).
+//
+// Order within a single CodeMirror dispatch:
+//   1. CodeMirror dispatch begins.
+//   2. y-codemirror.next's update listener runs and forwards the change into
+//      a Y.Doc transaction → ydoc fires `updateV2` synchronously.
+//   3. Our `updateV2` listener stashes that binary update.
+//   4. Other CodeMirror update listeners run, including the keystrokeCapture
+//      below, which picks up the stash and attaches it to the RawEvent.
+//
+// updateV2 only fires once per CodeMirror transaction, so when a single
+// transaction produces multiple `iterChanges` ranges, the binary attaches to
+// the first range's RawEvent and subsequent events ride along without it
+// (already applied as part of the same Yjs operation).
+let pendingYjsUpdate: Uint8Array | null = null;
+
+ydoc.on('updateV2', (update: Uint8Array, origin: unknown) => {
+  // Skip remote updates (those came from peers through the y-partykit provider).
+  if (origin && origin === partyKitSync.getProvider()) return;
+  pendingYjsUpdate = update;
+});
+
 const captureExtension = keystrokeCaptureExtension((raw) => {
   if (!isCaptureEnabled()) return;
   if (session.state !== 'recording') {
@@ -431,7 +456,12 @@ const captureExtension = keystrokeCaptureExtension((raw) => {
     // chain. Surface a non-blocking nudge so the writer doesn't realise too
     // late that their authorship wasn't captured.
     showStartSessionToast();
+    pendingYjsUpdate = null;
     return;
+  }
+  if (pendingYjsUpdate) {
+    raw.yjsUpdate = bytesToBase64(pendingYjsUpdate);
+    pendingYjsUpdate = null;
   }
   session.handleEvent(raw);
 });

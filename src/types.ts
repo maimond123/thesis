@@ -20,11 +20,17 @@ export interface AuthoringEvent {
   authorThumbprint: string; // JWK thumbprint of author's public key
   timestamp: number;       // performance.now() relative to session start
   type: EventType;
-  from: number;            // position in doc BEFORE change
+  from: number;            // position in doc BEFORE change (in the AUTHOR's local view)
   to: number;              // end of replaced range
   inserted: string;        // text inserted (empty for pure deletions)
   deleted: string;         // text deleted (empty for pure inserts)
   cursorAfter: number;     // cursor position after change
+  // Base64-encoded Yjs binary updateV2 representing this edit in CRDT-correct
+  // form. When present, replay applies this to a fresh Y.Doc so the merged
+  // document reconstructs exactly as Yjs computed it live, even across
+  // concurrent multi-author edits. Older proofs without this field replay
+  // using the legacy position-based path (correct for single-author only).
+  yjsUpdate?: string;
   hash: string;            // SHA-256 hex of this event
   prevHash: string;        // SHA-256 hex of previous event (or genesis)
 }

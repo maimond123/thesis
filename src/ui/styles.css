@@ -1018,6 +1018,62 @@ html, body {
 
 .replay-legend:empty { display: none; }
 
+/* ─── Replay mode toggle + per-author tracks ─────────────────── */
+
+.replay-mode-btn {
+  margin-left: auto;
+}
+
+.replay-surface-tracks {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 18px;
+  padding: 18px 0;
+  align-items: stretch !important;
+}
+
+.replay-track {
+  background: var(--bg-paper);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-width: 880px;
+  width: calc(100% - 48px);
+  margin: 0 auto;
+  overflow: hidden;
+  box-shadow: var(--shadow-soft);
+}
+
+.replay-track-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+}
+
+.replay-track-body {
+  background: var(--bg-paper);
+}
+
+.replay-track-body .cm-editor {
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 200px !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  background: var(--bg-paper) !important;
+}
+
+.replay-track-body .cm-content {
+  padding: 24px 32px 40px !important;
+}
+
 .replay-legend-item {
   display: flex;
   align-items: center;

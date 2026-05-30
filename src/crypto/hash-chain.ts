@@ -28,6 +28,9 @@ export async function sha256(data: string): Promise<string> {
 export async function computeEventHash(
   event: Omit<AuthoringEvent, 'hash'>
 ): Promise<string> {
+  // yjsUpdate is included so the CRDT-correct replay payload is also covered
+  // by the chain's tamper-evidence. Older events without the field hash with
+  // it as null so existing proofs remain verifiable unchanged.
   const payload = canonicalJsonStringify({
     seq: event.seq,
     authorThumbprint: event.authorThumbprint,
@@ -38,6 +41,7 @@ export async function computeEventHash(
     inserted: event.inserted,
     deleted: event.deleted,
     cursorAfter: event.cursorAfter,
+    yjsUpdate: event.yjsUpdate ?? null,
     prevHash: event.prevHash,
   });
   return sha256(payload);

@@ -113,6 +113,12 @@ export class PartyKitSync {
     }
   }
 
+  // Exposed so the keystroke-capture layer can distinguish Yjs updates that
+  // came in from peers (origin === provider) from local edits (origin !== provider).
+  getProvider(): YPartyKitProvider | null {
+    return this.yjsProvider;
+  }
+
   disconnect(): void {
     this.yjsProvider?.destroy();
     this.yjsProvider = null;
