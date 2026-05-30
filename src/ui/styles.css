@@ -1024,12 +1024,34 @@ html, body {
   margin-left: auto;
 }
 
-.replay-surface-tracks {
-  display: flex !important;
-  flex-direction: column !important;
+/* Merged surface lives in .replay-merged-host. In unified mode it fills the
+   available vertical space (default editor-container behaviour). In tracks
+   mode it shares the panel with the tracks list below, so we clamp its
+   height and let internal CodeMirror scrolling take over. */
+.replay-panel.replay-mode-tracks .replay-merged-host {
+  max-height: 50vh;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+}
+
+.replay-panel.replay-mode-tracks .replay-merged-host .cm-editor {
+  min-height: 0 !important;
+  max-height: 50vh !important;
+}
+
+.replay-panel.replay-mode-tracks .replay-merged-host .cm-scroller {
+  overflow: auto !important;
+  max-height: 50vh !important;
+}
+
+.replay-tracks-host {
+  display: none;
+  flex-direction: column;
   gap: 18px;
-  padding: 18px 0;
-  align-items: stretch !important;
+  padding: 18px 24px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
 }
 
 .replay-track {
@@ -1037,7 +1059,7 @@ html, body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   max-width: 880px;
-  width: calc(100% - 48px);
+  width: 100%;
   margin: 0 auto;
   overflow: hidden;
   box-shadow: var(--shadow-soft);
@@ -1056,22 +1078,40 @@ html, body {
   letter-spacing: 0.3px;
 }
 
+.replay-track-status {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
 .replay-track-body {
   background: var(--bg-paper);
+  max-height: 220px;
+  overflow: hidden;
 }
 
 .replay-track-body .cm-editor {
   width: 100% !important;
   max-width: none !important;
-  min-height: 200px !important;
+  min-height: 120px !important;
+  max-height: 220px !important;
   margin: 0 !important;
   box-shadow: none !important;
   border-radius: 0 !important;
   background: var(--bg-paper) !important;
 }
 
+.replay-track-body .cm-scroller {
+  overflow: auto !important;
+  max-height: 220px !important;
+}
+
 .replay-track-body .cm-content {
-  padding: 24px 32px 40px !important;
+  padding: 16px 24px !important;
+  min-height: 80px !important;
 }
 
 .replay-legend-item {
