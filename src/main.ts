@@ -115,6 +115,14 @@ identityStore.onChange(publishLocalAwareness);
 // ─── State ─────────────────────────────────────────────────────────
 
 const session = new SessionManager(identityStore, SLICE1_FILE_ID);
+
+// Wire the session's persistence layer so saveSession / cloudSave /
+// buildProofFile pick up the comments bundle alongside the document, and
+// recover / recoverFromCloud rehydrate the Y.Maps before capture re-enables.
+session.setCommentsAccessors({
+  get: () => commentStore.toBundle(),
+  load: (bundle) => commentStore.loadFromBundle(bundle),
+});
 let editorView: ReturnType<typeof createEditor> | null = null;
 let lastProof: ProofFile | null = null;
 let replayView: ReplayView;

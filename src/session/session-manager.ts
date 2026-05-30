@@ -8,6 +8,14 @@ import { EventStore } from './event-store';
 import { saveSession, loadSession, clearSession } from './persistence';
 import { cloudSave, cloudLoad, cloudList } from './cloud-sync';
 import type { IdentityStore } from '../identity/identity-store';
+import type { CommentsBundle } from '../comments/types';
+
+// Accessors the SessionManager uses to snapshot + rehydrate the comment
+// bundle without taking a direct dependency on CommentStore.
+export interface CommentsAccessors {
+  get(): CommentsBundle;
+  load(bundle: CommentsBundle): void;
+}
 
 const APP_VERSION = '0.3.0';
 const CHECKPOINT_INTERVAL_MS = 60_000;
@@ -59,9 +67,15 @@ export class SessionManager {
   // for broadcasting to peers via the chain channel.
   onLocalEventAppended?: (authorThumbprint: string, event: AuthoringEvent) => void;
 
+  private commentsAccessors: CommentsAccessors | null = null;
+
   constructor(identityStore: IdentityStore, fileId: string) {
     this.identityStore = identityStore;
     this.fileId = fileId;
+  }
+
+  setCommentsAccessors(accessors: CommentsAccessors): void {
+    this.commentsAccessors = accessors;
   }
 
   get state(): SessionState {
@@ -143,6 +157,7 @@ export class SessionManager {
     }
 
     setDocument(saved.document);
+    if (saved.comments) this.commentsAccessors?.load(saved.comments);
 
     this.startTimers();
     this.setState('recording');
@@ -191,6 +206,7 @@ export class SessionManager {
     }
 
     setDocument(saved.document);
+    if (saved.comments) this.commentsAccessors?.load(saved.comments);
     this.startTimers();
     this.setState('recording');
     this.onEventAdded?.(this.getTotalEventCount());
@@ -430,6 +446,7 @@ export class SessionManager {
       timestampAnchors: [...this.anchors],
       finalDocument,
       finalSignature,
+      comments: this.commentsAccessors?.get(),
     };
   }
 
@@ -452,6 +469,7 @@ export class SessionManager {
         this.checkpoints,
         this.anchors,
         this.getDocument(),
+        this.commentsAccessors?.get(),
       );
       this.lastCloudSaveCount = currentCount;
       this.lastCloudSaveAt = Date.now();
@@ -476,6 +494,7 @@ export class SessionManager {
         this.checkpoints,
         this.anchors,
         this.getDocument(),
+        this.commentsAccessors?.get(),
       );
       this.lastPersistedCount = this.getTotalEventCount();
       this.lastIdbSaveAt = Date.now();
@@ -499,6 +518,7 @@ export class SessionManager {
         checkpoints: this.checkpoints,
         anchors: this.anchors,
         document: this.getDocument(),
+        comments: this.commentsAccessors?.get(),
       });
       // Emergency snapshot is also namespaced by fileId so a parallel tab on a
       // different document doesn't overwrite ours.

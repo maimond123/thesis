@@ -1,4 +1,5 @@
 import type { AuthoringEvent, Checkpoint, TimestampAnchor, SessionMetadata } from '../types';
+import type { CommentsBundle } from '../comments/types';
 
 interface CloudSession {
   metadata: SessionMetadata;
@@ -6,6 +7,7 @@ interface CloudSession {
   checkpoints: Checkpoint[];
   anchors: TimestampAnchor[];
   document: string;
+  comments?: CommentsBundle;
   savedAt: string;
 }
 
@@ -23,6 +25,7 @@ export async function cloudSave(
   checkpoints: Checkpoint[],
   anchors: TimestampAnchor[],
   document: string,
+  comments?: CommentsBundle,
 ): Promise<void> {
   const data: CloudSession = {
     metadata,
@@ -30,6 +33,7 @@ export async function cloudSave(
     checkpoints,
     anchors,
     document,
+    comments,
     savedAt: new Date().toISOString(),
   };
 

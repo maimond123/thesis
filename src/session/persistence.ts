@@ -1,4 +1,5 @@
 import type { AuthoringEvent, Checkpoint, TimestampAnchor, SessionMetadata } from '../types';
+import type { CommentsBundle } from '../comments/types';
 
 const DB_NAME = 'thesis-autosave';
 const DB_VERSION = 1;
@@ -9,6 +10,9 @@ interface SavedSession {
   checkpoints: Checkpoint[];
   anchors: TimestampAnchor[];
   document: string;
+  // Optional comments bundle. Older saved sessions predating C.9 won't have
+  // it; recovery handles the missing case the same as "no comments yet".
+  comments?: CommentsBundle;
   // Note: no private key stored here. Signing uses the persistent IdentityStore.
 }
 
@@ -60,8 +64,9 @@ export async function saveSession(
   checkpoints: Checkpoint[],
   anchors: TimestampAnchor[],
   document: string,
+  comments?: CommentsBundle,
 ): Promise<void> {
-  const saved: SavedSession = { metadata, events, checkpoints, anchors, document };
+  const saved: SavedSession = { metadata, events, checkpoints, anchors, document, comments };
   await put(activeKey(metadata.fileId), saved);
 }
 
