@@ -1,8 +1,10 @@
+import * as Y from 'yjs';
 import type { ProofFile, AuthoringEvent, PublicIdentitySnapshot } from '../types';
 import {
   validateChain, sha256, canonicalJsonStringify, deriveChainGenesis,
 } from '../crypto/hash-chain';
 import { verifySignature } from '../crypto/signing';
+import { base64ToBytes } from '../editor/yjs-bytes';
 
 // ─── Result types ──────────────────────────────────────────────────
 
@@ -219,11 +221,46 @@ async function verifyCheckpoints(proof: ProofFile): Promise<CheckResult> {
 // ─── Document consistency ─────────────────────────────────────────
 
 async function verifyDocumentConsistency(proof: ProofFile): Promise<CheckResult> {
-  // In multi-author mode the doc is the result of a CRDT merge, so we can't
-  // simply replay events in timestamp order and expect a byte-perfect match.
-  // For slice 1 we verify two weaker properties:
-  //   (a) For single-author proofs only, the linear replay matches finalDocument
-  //   (b) The last checkpoint's documentHash matches sha256(finalDocument)
+  // v2 proofs carry the binary Yjs update for every signed edit, so we can
+  // replay the merged document EXACTLY by piping each update into a fresh
+  // Y.Doc in chronological order. This is an exact check across any number
+  // of concurrent authors — no more "two-author proofs fall back to hash".
+  if (proof.version === 2) {
+    if (proof.events.length === 0) {
+      return proof.finalDocument === ''
+        ? { passed: true, message: 'Empty session; finalDocument is empty' }
+        : {
+            passed: false,
+            message: 'finalDocument is non-empty but no events were recorded',
+          };
+    }
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText('main');
+    for (const event of proof.events) {
+      if (!event.yjsUpdate) {
+        return {
+          passed: false,
+          message: 'Malformed v2 proof: event missing yjsUpdate',
+          details: `Event seq ${event.seq} (author ${event.authorThumbprint.slice(0, 8)}…) has no yjsUpdate`,
+        };
+      }
+      Y.applyUpdateV2(ydoc, base64ToBytes(event.yjsUpdate));
+    }
+    const reconstructed = ytext.toString();
+    if (reconstructed === proof.finalDocument) {
+      return { passed: true, message: 'Replayed document matches finalDocument' };
+    }
+    return {
+      passed: false,
+      message: 'Replayed document differs from finalDocument',
+      details: `Replayed length ${reconstructed.length}, finalDocument length ${proof.finalDocument.length}`,
+    };
+  }
+
+  // v1 path: events only carry CodeMirror positions. Linear replay is exact
+  // for single-author proofs (no merge to reckon with). For multi-author v1
+  // proofs there's no way to reconstruct the doc without the CRDT history,
+  // so we fall back to checking the last checkpoint's documentHash.
   const byAuthor = groupByAuthor(proof.events);
   const isSingleAuthor = byAuthor.size <= 1;
 
@@ -238,7 +275,6 @@ async function verifyDocumentConsistency(proof: ProofFile): Promise<CheckResult>
     }
   }
 
-  // Fall back to last-checkpoint document-hash check.
   const docHash = await sha256(proof.finalDocument);
   const lastCp = proof.checkpoints[proof.checkpoints.length - 1];
   if (lastCp && lastCp.documentHash === docHash) {
@@ -254,7 +290,6 @@ async function verifyDocumentConsistency(proof: ProofFile): Promise<CheckResult>
       details: `Replayed length differs from finalDocument and last-checkpoint hash also differs.`,
     };
   }
-  // Multi-author proof, no matching checkpoint hash:
   return {
     passed: false,
     message: 'Multi-author proof: cannot verify document — last checkpoint documentHash does not match finalDocument',
