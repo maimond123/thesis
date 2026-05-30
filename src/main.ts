@@ -709,6 +709,7 @@ loadSessionBtn.addEventListener('click', async () => {
                 yText.insert(0, doc);
               });
             },
+            (bytes) => { Y.applyUpdateV2(ydoc, bytes); },
           );
           if (ok) {
             eventCount.textContent = `Events: ${session.getEventCount()}`;
@@ -751,13 +752,19 @@ loadSessionBtn.addEventListener('click', async () => {
     const recovered = await session.recover(
       () => yText.toString(),
       (doc) => {
-        // Write restored content into Y.Text inside a transaction so the
-        // y-codemirror binding updates CodeMirror as a single atomic change.
+        // v1 fallback: write the restored text directly into Y.Text inside a
+        // transaction so y-codemirror updates the view as one atomic change.
+        // Throws away the CRDT history; safe only because v1 sessions are
+        // single-author.
         ydoc.transact(() => {
           if (yText.length > 0) yText.delete(0, yText.length);
           yText.insert(0, doc);
         });
       },
+      // v2 path: feed each recorded Yjs update back into the live Y.Doc so
+      // the CRDT history is rebuilt and reconnecting peers find a doc whose
+      // internal state lines up with theirs.
+      (bytes) => { Y.applyUpdateV2(ydoc, bytes); },
     );
     if (recovered) {
       eventCount.textContent = `Events: ${session.getEventCount()}`;

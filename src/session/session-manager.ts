@@ -8,6 +8,7 @@ import { EventStore } from './event-store';
 import { saveSession, loadSession, clearSession } from './persistence';
 import { cloudSave, cloudLoad, cloudList } from './cloud-sync';
 import type { IdentityStore } from '../identity/identity-store';
+import { base64ToBytes } from '../editor/yjs-bytes';
 
 const APP_VERSION = '0.3.0';
 const CHECKPOINT_INTERVAL_MS = 60_000;
@@ -78,7 +79,11 @@ export class SessionManager {
     return saved !== null;
   }
 
-  async recover(getDocument: () => string, setDocument: (doc: string) => void): Promise<boolean> {
+  async recover(
+    getDocument: () => string,
+    setDocument: (doc: string) => void,
+    applyYjsUpdate?: (update: Uint8Array) => void,
+  ): Promise<boolean> {
     let saved = await loadSession(this.fileId);
     if (!saved) {
       try {
@@ -142,7 +147,7 @@ export class SessionManager {
       }
     }
 
-    setDocument(saved.document);
+    this.restoreLiveDocument(saved.events, saved.document, setDocument, applyYjsUpdate);
 
     this.startTimers();
     this.setState('recording');
@@ -154,6 +159,7 @@ export class SessionManager {
     sessionId: string,
     getDocument: () => string,
     setDocument: (doc: string) => void,
+    applyYjsUpdate?: (update: Uint8Array) => void,
   ): Promise<boolean> {
     const saved = await cloudLoad(sessionId);
     if (!saved) return false;
@@ -190,11 +196,41 @@ export class SessionManager {
       this.mirrorChains.set(thumb, EventStore.fromEvents(events, thumb, genesis));
     }
 
-    setDocument(saved.document);
+    this.restoreLiveDocument(saved.events, saved.document, setDocument, applyYjsUpdate);
     this.startTimers();
     this.setState('recording');
     this.onEventAdded?.(this.getTotalEventCount());
     return true;
+  }
+
+  // Restore the live document state during recovery.
+  //
+  // v2 sessions: every event carries the binary Yjs update that produced it,
+  // so we rebuild the live Y.Doc by re-applying those updates in chronological
+  // order. This preserves the CRDT history — peers reconnecting via PartyKit
+  // see a doc whose internal Yjs state lines up with what they already
+  // synchronised against, instead of a fresh, history-less text blob that
+  // would fight their existing changes.
+  //
+  // v1 sessions and any v2 event missing a yjsUpdate field fall back to the
+  // legacy setDocument path: write the saved text into Y.Text directly. The
+  // CRDT history is lost, but for a single-author v1 session that doesn't
+  // matter — there are no peers to reconcile with.
+  private restoreLiveDocument(
+    events: AuthoringEvent[],
+    fallbackDocument: string,
+    setDocument: (doc: string) => void,
+    applyYjsUpdate: ((update: Uint8Array) => void) | undefined,
+  ): void {
+    const allHaveYjs = events.length > 0 && events.every((e) => typeof e.yjsUpdate === 'string');
+    if (allHaveYjs && applyYjsUpdate) {
+      const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
+      for (const ev of sorted) {
+        applyYjsUpdate(base64ToBytes(ev.yjsUpdate!));
+      }
+      return;
+    }
+    setDocument(fallbackDocument);
   }
 
   async listCloudSessions() {
