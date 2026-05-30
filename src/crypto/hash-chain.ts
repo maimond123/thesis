@@ -47,6 +47,9 @@ export async function computeEventHash(
   if (event.yjsUpdate !== undefined) {
     payload.yjsUpdate = event.yjsUpdate;
   }
+  if (event.wallClock !== undefined) {
+    payload.wallClock = event.wallClock;
+  }
   return sha256(canonicalJsonStringify(payload));
 }
 

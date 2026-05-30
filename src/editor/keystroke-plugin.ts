@@ -14,6 +14,11 @@ import type { EventType } from '../types';
 // v1-style fallback for any event that somehow ships without a yjsUpdate.
 export interface PendingCaptureContext {
   timestamp: number;
+  // ms since UNIX epoch at capture time. Computed as performance.timeOrigin +
+  // performance.now() so it's comparable across page loads — kill the tab,
+  // reopen, and the verifier can still tell that 3h 14m passed between the
+  // last pre-kill event and the first post-recovery event.
+  wallClock: number;
   eventType: EventType;
   from: number;
   to: number;
@@ -75,8 +80,10 @@ export function captureContextExtension(): Extension {
     });
     if (aggFrom === -1) return tr;
 
+    const now = performance.now();
     pending = {
-      timestamp: performance.now(),
+      timestamp: now,
+      wallClock: performance.timeOrigin + now,
       eventType,
       from: aggFrom,
       to: aggTo,

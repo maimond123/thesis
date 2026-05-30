@@ -141,6 +141,32 @@ async function main() {
     assert.equal(replayed, proof.finalDocument, 'replay diverged from finalDocument');
     console.log(`[replay] ${JSON.stringify(replayed.slice(0, 80))}...`);
 
+    // wallClock cross-page sanity: every event must carry one, and the LAST
+    // pre-kill event and the FIRST post-recovery event must have wallClocks
+    // that differ by AT LEAST the wall-clock gap (we don't know exactly how
+    // long the kill→reopen took, but it must be > 0 and the values must be
+    // monotonically increasing within the single author chain).
+    for (const ev of proof.events) {
+      assert.equal(typeof ev.wallClock, 'number', `event seq ${ev.seq} missing wallClock`);
+    }
+    const sortedByWall = [...proof.events].sort((a, b) => a.wallClock - b.wallClock);
+    const calendarSpanMs = sortedByWall[sortedByWall.length - 1].wallClock - sortedByWall[0].wallClock;
+    console.log(`[wallClock] calendar span = ${calendarSpanMs}ms across ${proof.events.length} events`);
+    assert.ok(
+      calendarSpanMs > 0,
+      `calendar span must be positive (got ${calendarSpanMs}ms)`,
+    );
+    // wallClock within each chain should be monotonic.
+    const chain = [...proof.events]
+      .filter(e => e.authorThumbprint === proof.events[0].authorThumbprint)
+      .sort((a, b) => a.seq - b.seq);
+    for (let i = 1; i < chain.length; i++) {
+      assert.ok(
+        chain[i].wallClock >= chain[i - 1].wallClock,
+        `chain wallClock went backwards at seq ${chain[i].seq}: ${chain[i - 1].wallClock} → ${chain[i].wallClock}`,
+      );
+    }
+
     // Drive in-app Verify to assert full pipeline passes.
     await page.getByRole('button', { name: 'Verify' }).click();
     const fcPromise = page.waitForEvent('filechooser');

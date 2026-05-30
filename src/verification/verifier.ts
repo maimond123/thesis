@@ -27,25 +27,59 @@ export const DELAY_BUCKETS: ReadonlyArray<{ lo: number; hi: number; label: strin
   { lo: 2000, hi: Infinity, label: '>2s' },
 ];
 
+// Boundaries for accumulating wall-clock writing time. A gap between two
+// consecutive events in an author's chain is classified as:
+//   * Active typing:  gap <= ACTIVE_GAP_MS
+//   * Thinking pause: ACTIVE_GAP_MS < gap <= SESSION_BREAK_MS
+//     (still counts toward active writing — the author is plausibly at the
+//     keyboard, just reading or thinking)
+//   * Session break:  gap > SESSION_BREAK_MS
+//     (excluded from active writing; bumps the session counter; spans the
+//     wall-clock gap between, e.g., closing the tab and reopening it later)
+export const ACTIVE_GAP_MS = 60_000;
+export const SESSION_BREAK_MS = 5 * 60_000;
+
 export interface PasteSpike {
-  timestamp: number;       // performance.now() time of paste
-  length: number;          // characters pasted
+  timestamp: number;        // performance.now() time of paste (page-relative; mostly for legacy renderers)
+  wallClock?: number;       // ms since epoch, when present on the event
+  length: number;
   authorThumbprint: string;
 }
 
-export interface PatternAnalysis {
-  averageSpeed: number;
-  medianDelay: number;
-  delayStdDev: number;
-  correctionRatio: number;
-  longPauses: number;
-  appearsHuman: boolean;
-  explanation: string;
-  // New fields for the visual humanness profile.
-  delayHistogram: number[];   // count per DELAY_BUCKETS bucket
-  pasteSpikes: PasteSpike[];  // paste events ordered by time
-  sessionDurationMs: number;  // first → last event span
+// Per-author breakdown of activity. The merged view sums these.
+export interface AuthorActivity {
+  thumbprint: string;
+  events: number;
+  pastes: number;
+  pastedChars: number;
+  activeMs: number;         // sum of gaps within this author's chain that count as writing
+  sessions: number;         // 1 + number of >SESSION_BREAK_MS gaps in this author's chain
+  firstWallClock: number | null;
+  lastWallClock: number | null;
+}
+
+export interface AuthoringActivity {
   totalEvents: number;
+  typedEvents: number;       // input.type + delete.* + undo + redo
+  pasteEvents: number;
+  pastedChars: number;
+  pasteSpikes: PasteSpike[];
+  // Calendar span = max(wallClock) - min(wallClock) across all events.
+  // null when no event carries wallClock (pre-0.4.0 proof).
+  calendarSpanMs: number | null;
+  // Total wall-clock time anyone was actively at the keyboard. Sum of per-
+  // author gaps that fall inside the active-writing window. Multi-author
+  // concurrent typing is counted PER AUTHOR (so person-minutes, not
+  // wall-clock minutes). null when wallClock is unavailable.
+  activeWritingMs: number | null;
+  // Distinct work sessions = max number of session-break gaps across any one
+  // author's chain, plus one. Captures e.g. "alice came back 3 times across
+  // 4 days; bob came back once". null when wallClock is unavailable.
+  sessions: number | null;
+  medianGapMs: number;       // intra-page using `timestamp` field; works for v1 proofs too
+  gapStdDevMs: number;
+  delayHistogram: number[];  // count per DELAY_BUCKETS bucket (intra-page gaps)
+  authors: AuthorActivity[];
 }
 
 export interface VerificationResult {
@@ -56,7 +90,7 @@ export interface VerificationResult {
     checkpointSignatures: CheckResult;
     documentConsistency: CheckResult;
     finalSignature: CheckResult;
-    humanPatterns: PatternAnalysis;
+    authoringActivity: AuthoringActivity;
     roster: CheckResult;
   };
 }
@@ -88,7 +122,7 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
   const docCheck = await verifyDocumentConsistency(proof);
   const finalSigCheck = await verifyFinalSignature(proof);
   const rosterCheck = verifyRoster(proof);
-  const humanPatterns = analyzeHumanPatterns(proof.events);
+  const authoringActivity = analyzeAuthoringActivity(proof.events);
 
   const valid =
     genesisCheck.passed &&
@@ -106,7 +140,7 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
       checkpointSignatures: checkpointCheck,
       documentConsistency: docCheck,
       finalSignature: finalSigCheck,
-      humanPatterns,
+      authoringActivity,
       roster: rosterCheck,
     },
   };
@@ -347,7 +381,7 @@ function verifyRoster(proof: ProofFile): CheckResult {
   };
 }
 
-// ─── Human pattern analysis ───────────────────────────────────────
+// ─── Authoring activity (pure statistics — no human-vs-AI verdict) ─
 
 function bucketize(delayMs: number): number {
   for (let i = 0; i < DELAY_BUCKETS.length; i++) {
@@ -356,16 +390,24 @@ function bucketize(delayMs: number): number {
   return DELAY_BUCKETS.length - 1;
 }
 
-export function analyzeHumanPatterns(events: AuthoringEvent[]): PatternAnalysis {
-  const empty: PatternAnalysis = {
-    averageSpeed: 0, medianDelay: 0, delayStdDev: 0, correctionRatio: 0, longPauses: 0,
-    appearsHuman: false, explanation: 'Too few events to analyze',
+export function analyzeAuthoringActivity(events: AuthoringEvent[]): AuthoringActivity {
+  const empty: AuthoringActivity = {
+    totalEvents: events.length,
+    typedEvents: 0,
+    pasteEvents: 0,
+    pastedChars: 0,
+    pasteSpikes: [],
+    calendarSpanMs: null,
+    activeWritingMs: null,
+    sessions: null,
+    medianGapMs: 0,
+    gapStdDevMs: 0,
     delayHistogram: new Array(DELAY_BUCKETS.length).fill(0),
-    pasteSpikes: [], sessionDurationMs: 0, totalEvents: events.length,
+    authors: [],
   };
-  if (events.length < 2) return empty;
+  if (events.length === 0) return empty;
 
-  // Per-author chronological sort within each author for sane gap measurement.
+  // Group + sort each chain by its own seq (the chain's canonical order).
   const byAuthor = new Map<string, AuthoringEvent[]>();
   for (const e of events) {
     const arr = byAuthor.get(e.authorThumbprint) ?? [];
@@ -374,60 +416,126 @@ export function analyzeHumanPatterns(events: AuthoringEvent[]): PatternAnalysis 
   }
   for (const [, arr] of byAuthor) arr.sort((a, b) => a.seq - b.seq);
 
-  const delays: number[] = [];
+  // Intra-page gap stats from `timestamp` — these still work for v1 proofs
+  // and for v2 proofs that pre-date wallClock. They underpin the median /
+  // std-dev / histogram readouts the reviewer eyeballs.
+  const intraPageGaps: number[] = [];
   const delayHistogram = new Array(DELAY_BUCKETS.length).fill(0);
   for (const [, arr] of byAuthor) {
     for (let i = 1; i < arr.length; i++) {
       const d = arr[i].timestamp - arr[i - 1].timestamp;
-      if (d < 0) continue;       // out-of-order — ignore
-      if (d > 60_000) continue;  // session resumption gap — not a typing pause
-      delays.push(d);
+      if (d < 0) continue;          // performance.now() reset between events (different pages); skip
+      if (d > SESSION_BREAK_MS) continue;  // cross-session gap — not a keystroke cadence
+      intraPageGaps.push(d);
       delayHistogram[bucketize(d)] += 1;
     }
   }
+  const sortedGaps = [...intraPageGaps].sort((a, b) => a - b);
+  const medianGapMs = sortedGaps.length > 0 ? sortedGaps[Math.floor(sortedGaps.length / 2)] : 0;
+  const meanGap = intraPageGaps.length > 0
+    ? intraPageGaps.reduce((s, d) => s + d, 0) / intraPageGaps.length : 0;
+  const variance = intraPageGaps.length > 0
+    ? intraPageGaps.reduce((s, d) => s + (d - meanGap) ** 2, 0) / intraPageGaps.length : 0;
+  const gapStdDevMs = Math.sqrt(variance);
 
-  const sorted = [...delays].sort((a, b) => a - b);
-  const medianDelay = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
-  const meanDelay = delays.length > 0 ? delays.reduce((s, d) => s + d, 0) / delays.length : 0;
-  const variance = delays.length > 0
-    ? delays.reduce((s, d) => s + (d - meanDelay) ** 2, 0) / delays.length
-    : 0;
-  const delayStdDev = Math.sqrt(variance);
-  const totalTime = events[events.length - 1].timestamp - events[0].timestamp;
-  const averageSpeed = totalTime > 0 ? (events.length / totalTime) * 60_000 : 0;
-  const deleteEvents = events.filter((e) => e.type.startsWith('delete') || e.type === 'undo');
-  const correctionRatio = events.length > 0 ? deleteEvents.length / events.length : 0;
-  const longPauses = delays.filter((d) => d > 2000).length;
+  // Per-author wall-clock breakdown.
+  const authors: AuthorActivity[] = [];
+  let allHaveWallClock = true;
+  for (const [thumb, arr] of byAuthor) {
+    const pastes = arr.filter((e) => e.type === 'input.paste' && e.inserted.length > 0);
+    const pastedChars = pastes.reduce((s, e) => s + e.inserted.length, 0);
+
+    let activeMs = 0;
+    let sessions = 1;
+    let firstWallClock: number | null = null;
+    let lastWallClock: number | null = null;
+    for (const e of arr) {
+      if (typeof e.wallClock !== 'number') { allHaveWallClock = false; continue; }
+      if (firstWallClock === null) firstWallClock = e.wallClock;
+      lastWallClock = e.wallClock;
+    }
+    if (firstWallClock !== null) {
+      for (let i = 1; i < arr.length; i++) {
+        const a = arr[i - 1].wallClock;
+        const b = arr[i].wallClock;
+        if (typeof a !== 'number' || typeof b !== 'number') continue;
+        const gap = b - a;
+        if (gap < 0) continue;
+        if (gap > SESSION_BREAK_MS) { sessions += 1; continue; }
+        activeMs += gap;
+      }
+    }
+    authors.push({
+      thumbprint: thumb,
+      events: arr.length,
+      pastes: pastes.length,
+      pastedChars,
+      activeMs: firstWallClock === null ? 0 : activeMs,
+      sessions: firstWallClock === null ? 1 : sessions,
+      firstWallClock,
+      lastWallClock,
+    });
+  }
+
+  // Merged totals across authors.
+  const calendarFirst = authors.reduce<number | null>(
+    (m, a) => a.firstWallClock !== null && (m === null || a.firstWallClock < m) ? a.firstWallClock : m,
+    null,
+  );
+  const calendarLast = authors.reduce<number | null>(
+    (m, a) => a.lastWallClock !== null && (m === null || a.lastWallClock > m) ? a.lastWallClock : m,
+    null,
+  );
+  const calendarSpanMs = (calendarFirst !== null && calendarLast !== null)
+    ? calendarLast - calendarFirst : null;
+
+  const activeWritingMs = allHaveWallClock && authors.length > 0
+    ? authors.reduce((s, a) => s + a.activeMs, 0) : null;
+  const sessions = allHaveWallClock && authors.length > 0
+    ? authors.reduce((m, a) => Math.max(m, a.sessions), 0) : null;
 
   const pasteSpikes: PasteSpike[] = events
     .filter((e) => e.type === 'input.paste' && e.inserted.length > 0)
-    .map((e) => ({ timestamp: e.timestamp, length: e.inserted.length, authorThumbprint: e.authorThumbprint }))
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  const hasVariance = delayStdDev > 50;
-  const hasCorrections = correctionRatio > 0.05;
-  const hasPauses = longPauses > 0;
-  const noBulkPaste = !events.some((e) => e.inserted.length > 200 && e.type === 'input.paste');
-  const appearsHuman = hasVariance && (hasCorrections || hasPauses) && noBulkPaste;
-  const reasons: string[] = [];
-  if (hasVariance) reasons.push('variable typing speed');
-  if (hasCorrections) reasons.push(`${(correctionRatio * 100).toFixed(1)}% corrections`);
-  if (hasPauses) reasons.push(`${longPauses} thinking pauses`);
-  if (!noBulkPaste) reasons.push('WARNING: large paste operations detected');
+    .map((e) => ({
+      timestamp: e.timestamp,
+      wallClock: e.wallClock,
+      length: e.inserted.length,
+      authorThumbprint: e.authorThumbprint,
+    }))
+    // Order by wallClock when available so paste timelines stay coherent
+    // across page-reload boundaries; fall back to timestamp otherwise.
+    .sort((a, b) => (a.wallClock ?? a.timestamp) - (b.wallClock ?? b.timestamp));
 
   return {
-    averageSpeed: Math.round(averageSpeed),
-    medianDelay: Math.round(medianDelay),
-    delayStdDev: Math.round(delayStdDev),
-    correctionRatio: Math.round(correctionRatio * 1000) / 1000,
-    longPauses,
-    appearsHuman,
-    explanation: appearsHuman
-      ? `Appears human: ${reasons.join(', ')}`
-      : `Inconclusive: ${reasons.join(', ')}`,
-    delayHistogram,
-    pasteSpikes,
-    sessionDurationMs: totalTime,
     totalEvents: events.length,
+    typedEvents: events.filter((e) => e.type !== 'input.paste').length,
+    pasteEvents: pasteSpikes.length,
+    pastedChars: pasteSpikes.reduce((s, p) => s + p.length, 0),
+    pasteSpikes,
+    calendarSpanMs,
+    activeWritingMs,
+    sessions,
+    medianGapMs: Math.round(medianGapMs),
+    gapStdDevMs: Math.round(gapStdDevMs),
+    delayHistogram,
+    authors,
   };
+}
+
+// Format a millisecond duration as a short human-readable string. Renders
+// "2d 3h 14m", "47m 12s", "12s", etc. Used by the Verify panel.
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  const remSec = sec - min * 60;
+  if (min < 60) return remSec > 0 ? `${min}m ${remSec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min - hr * 60;
+  if (hr < 24) return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
+  const day = Math.floor(hr / 24);
+  const remHr = hr - day * 24;
+  return remHr > 0 ? `${day}d ${remHr}h` : `${day}d`;
 }

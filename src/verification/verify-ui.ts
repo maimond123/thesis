@@ -1,6 +1,12 @@
 import type { ProofFile } from '../types';
 import { importFromFile } from '../export/importer';
-import { verifyProof, type VerificationResult, DELAY_BUCKETS, type PatternAnalysis } from './verifier';
+import {
+  verifyProof,
+  type VerificationResult,
+  type AuthoringActivity,
+  DELAY_BUCKETS,
+  formatDuration,
+} from './verifier';
 
 export class VerifyUI {
   private container: HTMLElement;
@@ -129,18 +135,42 @@ export class VerifyUI {
       this.addCheck('info', `Authors (${proof.session.authors.length})`, lines.join('\n'));
     }
 
-    // Human pattern analysis — summary line then visual profile.
-    const hp = checks.humanPatterns;
-    this.addCheck(
-      hp.appearsHuman ? 'pass' : 'info',
-      hp.appearsHuman ? 'Human authorship likely' : 'Human authorship inconclusive',
-      `${hp.explanation}\n` +
-      `Speed: ~${hp.averageSpeed} events/min | ` +
-      `Median delay: ${hp.medianDelay}ms | ` +
-      `Corrections: ${(hp.correctionRatio * 100).toFixed(1)}% | ` +
-      `Thinking pauses: ${hp.longPauses}`
-    );
-    this.renderHumannessProfile(hp);
+    // Authoring activity — pure statistics, no human-vs-AI verdict. Authorship
+    // attribution is the cryptographic chain above; this panel is descriptive.
+    const aa = checks.authoringActivity;
+    const lines: string[] = [];
+    const typedPasted = `Events: ${aa.totalEvents}  (typed ${aa.typedEvents}, pasted ${aa.pasteEvents})`;
+    lines.push(typedPasted);
+    if (aa.pasteEvents > 0) {
+      const avg = Math.round(aa.pastedChars / aa.pasteEvents);
+      lines.push(`Pasted ${aa.pastedChars} chars across ${aa.pasteEvents} paste${aa.pasteEvents === 1 ? '' : 's'} (avg ${avg} chars)`);
+    }
+    if (aa.calendarSpanMs !== null) {
+      const sessionsLabel = aa.sessions !== null && aa.sessions > 1
+        ? ` across ${aa.sessions} sessions`
+        : '';
+      lines.push(`Calendar span: ${formatDuration(aa.calendarSpanMs)}${sessionsLabel}`);
+    } else if (aa.totalEvents > 0) {
+      lines.push('Calendar span: unknown (proof predates wall-clock timestamps)');
+    }
+    if (aa.activeWritingMs !== null) {
+      lines.push(`Active writing: ${formatDuration(aa.activeWritingMs)}`);
+    }
+    lines.push(`Median inter-keystroke gap: ${aa.medianGapMs}ms (std dev ${aa.gapStdDevMs}ms)`);
+    if (aa.authors.length > 1) {
+      const perAuthor = aa.authors
+        .map((a) => {
+          const handle = proof.session.authors?.find((x) => x.thumbprint === a.thumbprint)?.handle
+            ?? `${a.thumbprint.slice(0, 6)}…`;
+          const active = formatDuration(a.activeMs);
+          const pasteNote = a.pastes > 0 ? `, ${a.pastes} paste${a.pastes === 1 ? '' : 's'}` : '';
+          return `  ${handle}: ${a.events} events, ${active} active${pasteNote}`;
+        })
+        .join('\n');
+      lines.push(`By author:\n${perAuthor}`);
+    }
+    this.addCheck('info', 'Authoring activity', lines.join('\n'));
+    this.renderActivityProfile(aa);
 
     // Session info
     this.addCheck(
@@ -169,8 +199,8 @@ export class VerifyUI {
     this.resultsEl.appendChild(el);
   }
 
-  private renderHumannessProfile(hp: PatternAnalysis): void {
-    if (hp.totalEvents < 2) return;
+  private renderActivityProfile(aa: AuthoringActivity): void {
+    if (aa.totalEvents < 2) return;
 
     const card = document.createElement('div');
     card.className = 'humanness-card';
@@ -183,14 +213,14 @@ export class VerifyUI {
 
     const histDesc = document.createElement('div');
     histDesc.className = 'humanness-section-sub';
-    histDesc.textContent = 'Human typing has wide variance \u2014 a tall single-bucket distribution is a tell for replay/scripted input.';
+    histDesc.textContent = 'How long the writer paused between keystrokes (intra-page only \u2014 gaps across page reloads are excluded).';
     card.appendChild(histDesc);
 
     const histRow = document.createElement('div');
     histRow.className = 'humanness-histogram';
-    const maxCount = Math.max(1, ...hp.delayHistogram);
+    const maxCount = Math.max(1, ...aa.delayHistogram);
     for (let i = 0; i < DELAY_BUCKETS.length; i++) {
-      const count = hp.delayHistogram[i];
+      const count = aa.delayHistogram[i];
       const pct = (count / maxCount) * 100;
       const col = document.createElement('div');
       col.className = 'humanness-bar-col';
@@ -207,29 +237,29 @@ export class VerifyUI {
     const pasteTitle = document.createElement('div');
     pasteTitle.className = 'humanness-section-title';
     pasteTitle.style.marginTop = '20px';
-    pasteTitle.textContent = `Paste events (${hp.pasteSpikes.length})`;
+    pasteTitle.textContent = `Paste events (${aa.pasteSpikes.length})`;
     card.appendChild(pasteTitle);
 
     const pasteDesc = document.createElement('div');
     pasteDesc.className = 'humanness-section-sub';
-    pasteDesc.textContent = hp.pasteSpikes.length === 0
+    pasteDesc.textContent = aa.pasteSpikes.length === 0
       ? 'No paste operations recorded \u2014 every character was typed.'
-      : 'Paste size and position in the session timeline. Large bulk pastes are the strongest anti-human signal.';
+      : `Each spike is one paste, plotted by when it landed in the session timeline. Height scales with paste length.`;
     card.appendChild(pasteDesc);
 
-    if (hp.pasteSpikes.length > 0 && hp.sessionDurationMs > 0) {
+    if (aa.pasteSpikes.length > 0) {
       const timeline = document.createElement('div');
       timeline.className = 'humanness-paste-timeline';
-      const maxLen = Math.max(...hp.pasteSpikes.map((p) => p.length), 1);
-      const firstTs = hp.pasteSpikes[0].timestamp - (hp.pasteSpikes[0].timestamp - 0);
-      // Map each spike onto a 0-100 horizontal position.
-      // We use the session start (events[0].timestamp) as 0; we don't have
-      // that here directly, so derive from the spikes themselves.
-      const minT = Math.min(...hp.pasteSpikes.map((p) => p.timestamp));
-      const maxT = Math.max(...hp.pasteSpikes.map((p) => p.timestamp), firstTs + hp.sessionDurationMs);
+      const maxLen = Math.max(...aa.pasteSpikes.map((p) => p.length), 1);
+      // Prefer wallClock for the x-axis when it's available (works across
+      // page reloads); fall back to performance.now() timestamp for legacy
+      // proofs where wallClock isn't set.
+      const x = (p: typeof aa.pasteSpikes[number]) => p.wallClock ?? p.timestamp;
+      const minT = Math.min(...aa.pasteSpikes.map(x));
+      const maxT = Math.max(...aa.pasteSpikes.map(x));
       const span = Math.max(1, maxT - minT);
-      for (const sp of hp.pasteSpikes) {
-        const left = ((sp.timestamp - minT) / span) * 100;
+      for (const sp of aa.pasteSpikes) {
+        const left = ((x(sp) - minT) / span) * 100;
         const heightPct = (sp.length / maxLen) * 100;
         const spike = document.createElement('div');
         spike.className = 'humanness-paste-spike';

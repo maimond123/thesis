@@ -468,6 +468,7 @@ ydoc.on('updateV2', (update: Uint8Array, origin: unknown) => {
 
   session.handleEvent({
     timestamp: ctx.timestamp,
+    wallClock: ctx.wallClock,
     type: ctx.eventType,
     from: ctx.from,
     to: ctx.to,

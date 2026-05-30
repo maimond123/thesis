@@ -18,7 +18,19 @@ export type EventType =
 export interface AuthoringEvent {
   seq: number;
   authorThumbprint: string; // JWK thumbprint of author's public key
-  timestamp: number;       // performance.now() relative to session start
+  // performance.now() at capture time. Page-relative: it resets to 0 on every
+  // page load, so values from before and after a tab kill are NOT directly
+  // comparable. Used for intra-page fine-grained timing (inter-keystroke
+  // gaps within a single browser session). Cross-page accumulation uses
+  // wallClock below instead.
+  timestamp: number;
+  // ms since UNIX epoch (performance.timeOrigin + performance.now()) at
+  // capture time. Comparable across page loads and across peers, so it's
+  // the field the verifier uses to compute calendar span, active writing
+  // time, distinct sessions, and any other "how much real time passed"
+  // statistic. Optional because pre-0.4.0 events don't carry it; the
+  // activity stats degrade gracefully (calendar span unknown) when missing.
+  wallClock?: number;
   type: EventType;
   from: number;            // position in doc BEFORE change (in the AUTHOR's local view)
   to: number;              // end of replaced range
