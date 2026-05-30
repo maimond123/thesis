@@ -522,11 +522,15 @@ const commentDecoExt = commentDecorationsExtension({
 
 editorView = createEditor(editorContainer, yText, awareness, [captureExtension, composeUI.extension(), commentDecoExt]);
 
-// Expose for console-driven verification during development.
-const wnd = window as unknown as Record<string, unknown>;
-wnd.__thesisComments = commentStore;
-wnd.__thesisSession = session;
-wnd.__thesisReplay = replayView;
+// Dev-only console hooks for poking at the live state from DevTools. Vite
+// strips this branch in production builds (import.meta.env.DEV is statically
+// false), so nothing leaks to shipped pages.
+if (import.meta.env.DEV) {
+  const wnd = window as unknown as Record<string, unknown>;
+  wnd.__thesisComments = commentStore;
+  wnd.__thesisSession = session;
+  wnd.__thesisReplay = replayView;
+}
 
 // ─── Session callbacks ─────────────────────────────────────────────
 
