@@ -1219,6 +1219,96 @@ html, body {
   font-size: 14px;
 }
 
+/* ─── Verify panel: comments breakdown ──────────────────────── */
+
+.verify-comments-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-top: 4px;
+}
+
+.verify-comment-thread {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.verify-comment-thread:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 6px;
+}
+
+.verify-comment-thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.verify-comment-badge {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.verify-comment-badge.open {
+  background: var(--accent-dim);
+  color: var(--accent-strong);
+}
+
+.verify-comment-badge.resolved {
+  background: rgba(147, 180, 109, 0.15);
+  color: var(--success);
+}
+
+.verify-comment-row {
+  display: grid;
+  grid-template-columns: 18px max-content 1fr auto;
+  gap: 6px 10px;
+  align-items: baseline;
+  padding: 5px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.verify-comment-row.pass { color: var(--text); }
+.verify-comment-row.fail {
+  color: var(--error);
+  background: rgba(217, 109, 77, 0.08);
+}
+
+.verify-comment-icon { font-size: 13px; text-align: center; }
+.verify-comment-row.pass .verify-comment-icon { color: var(--success); }
+.verify-comment-row.fail .verify-comment-icon { color: var(--error); }
+
+.verify-comment-author {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.verify-comment-body {
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.verify-comment-row.fail .verify-comment-body { color: var(--error); }
+
+.verify-comment-reason {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--error);
+  white-space: nowrap;
+}
+
 /* ─── Editor + comments side panel layout ───────────────────── */
 
 .editor-body {

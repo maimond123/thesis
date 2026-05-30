@@ -1,6 +1,6 @@
 import type { ProofFile } from '../types';
 import { importFromFile } from '../export/importer';
-import { verifyProof, type VerificationResult, DELAY_BUCKETS, type PatternAnalysis } from './verifier';
+import { verifyProof, type VerificationResult, DELAY_BUCKETS, type PatternAnalysis, type CommentsCheckResult } from './verifier';
 
 export class VerifyUI {
   private container: HTMLElement;
@@ -129,6 +129,16 @@ export class VerifyUI {
       this.addCheck('info', `Authors (${proof.session.authors.length})`, lines.join('\n'));
     }
 
+    // Comments — aggregate check plus per-comment breakdown.
+    this.addCheck(
+      checks.comments.passed ? 'pass' : 'fail',
+      checks.comments.message,
+      checks.comments.entries.length > 0
+        ? `Threads: ${checks.comments.threads.length} | Comments: ${checks.comments.entries.length}`
+        : undefined,
+    );
+    if (checks.comments.entries.length > 0) this.renderCommentsBreakdown(checks.comments);
+
     // Human pattern analysis — summary line then visual profile.
     const hp = checks.humanPatterns;
     this.addCheck(
@@ -167,6 +177,57 @@ export class VerifyUI {
     `;
 
     this.resultsEl.appendChild(el);
+  }
+
+  private renderCommentsBreakdown(c: CommentsCheckResult): void {
+    const card = document.createElement('div');
+    card.className = 'verify-comments-card';
+
+    const title = document.createElement('div');
+    title.className = 'humanness-section-title';
+    title.textContent = 'Per-comment signatures';
+    card.appendChild(title);
+
+    const sub = document.createElement('div');
+    sub.className = 'humanness-section-sub';
+    sub.textContent = 'Each comment is independently signed by its author. The thumbprint in proof.session.authors is the verification key.';
+    card.appendChild(sub);
+
+    const byThread = new Map<string, typeof c.entries>();
+    for (const e of c.entries) {
+      const arr = byThread.get(e.comment.threadId) ?? [];
+      arr.push(e);
+      byThread.set(e.comment.threadId, arr);
+    }
+
+    for (const thread of c.threads) {
+      const entries = byThread.get(thread.id) ?? [];
+      const threadEl = document.createElement('div');
+      threadEl.className = 'verify-comment-thread';
+
+      const head = document.createElement('div');
+      head.className = 'verify-comment-thread-head';
+      const badge = thread.resolved ? 'resolved' : 'open';
+      head.innerHTML = `<span class="verify-comment-thread-id">Thread ${escapeHtml(thread.id.slice(0, 8))}…</span><span class="verify-comment-badge ${badge}">${badge}</span>`;
+      threadEl.appendChild(head);
+
+      for (const entry of entries) {
+        const row = document.createElement('div');
+        row.className = `verify-comment-row ${entry.valid ? 'pass' : 'fail'}`;
+        const icon = entry.valid ? '✓' : '✗';
+        const reason = entry.reason ? ` — ${escapeHtml(entry.reason)}` : '';
+        row.innerHTML = `
+          <span class="verify-comment-icon">${icon}</span>
+          <span class="verify-comment-author">${escapeHtml(entry.comment.authorHandle)}</span>
+          <span class="verify-comment-body">${escapeHtml(entry.comment.body)}</span>
+          <span class="verify-comment-reason">${reason}</span>
+        `;
+        threadEl.appendChild(row);
+      }
+      card.appendChild(threadEl);
+    }
+
+    this.resultsEl.appendChild(card);
   }
 
   private renderHumannessProfile(hp: PatternAnalysis): void {

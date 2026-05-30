@@ -3,6 +3,8 @@ import {
   validateChain, sha256, canonicalJsonStringify, deriveChainGenesis,
 } from '../crypto/hash-chain';
 import { verifySignature } from '../crypto/signing';
+import { verifyComment } from '../comments/comment-signing';
+import type { CommentThread, Comment } from '../comments/types';
 
 // ─── Result types ──────────────────────────────────────────────────
 
@@ -46,6 +48,17 @@ export interface PatternAnalysis {
   totalEvents: number;
 }
 
+export interface CommentVerifyEntry {
+  comment: Comment;
+  valid: boolean;
+  reason?: string;
+}
+
+export interface CommentsCheckResult extends CheckResult {
+  entries: CommentVerifyEntry[];
+  threads: CommentThread[];
+}
+
 export interface VerificationResult {
   valid: boolean;
   checks: {
@@ -56,6 +69,7 @@ export interface VerificationResult {
     finalSignature: CheckResult;
     humanPatterns: PatternAnalysis;
     roster: CheckResult;
+    comments: CommentsCheckResult;
   };
 }
 
@@ -86,6 +100,7 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
   const docCheck = await verifyDocumentConsistency(proof);
   const finalSigCheck = await verifyFinalSignature(proof);
   const rosterCheck = verifyRoster(proof);
+  const commentsCheck = await verifyComments(proof);
   const humanPatterns = analyzeHumanPatterns(proof.events);
 
   const valid =
@@ -94,7 +109,8 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
     checkpointCheck.passed &&
     docCheck.passed &&
     finalSigCheck.passed &&
-    rosterCheck.passed;
+    rosterCheck.passed &&
+    commentsCheck.passed;
 
   return {
     valid,
@@ -106,6 +122,7 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
       finalSignature: finalSigCheck,
       humanPatterns,
       roster: rosterCheck,
+      comments: commentsCheck,
     },
   };
 }
@@ -309,6 +326,54 @@ function verifyRoster(proof: ProofFile): CheckResult {
   return {
     passed: true,
     message: `Roster has ${roster.length} author${roster.length === 1 ? '' : 's'}; every event attributable`,
+  };
+}
+
+// ─── Comments ──────────────────────────────────────────────────────
+
+async function verifyComments(proof: ProofFile): Promise<CommentsCheckResult> {
+  const bundle = proof.comments;
+  if (!bundle || bundle.comments.length === 0) {
+    return {
+      passed: true,
+      message: 'No comments in proof',
+      entries: [],
+      threads: bundle?.threads ?? [],
+    };
+  }
+  const authorsByThumb = new Map((proof.session.authors ?? []).map((a) => [a.thumbprint, a]));
+  const entries: CommentVerifyEntry[] = [];
+  let failed = 0;
+  for (const comment of bundle.comments) {
+    const author = authorsByThumb.get(comment.authorThumbprint);
+    if (!author) {
+      entries.push({ comment, valid: false, reason: 'author missing from roster' });
+      failed++;
+      continue;
+    }
+    try {
+      const ok = await verifyComment(comment, author.publicKey);
+      entries.push({ comment, valid: ok, reason: ok ? undefined : 'signature invalid' });
+      if (!ok) failed++;
+    } catch (err) {
+      entries.push({ comment, valid: false, reason: err instanceof Error ? err.message : String(err) });
+      failed++;
+    }
+  }
+  const total = bundle.comments.length;
+  if (failed === 0) {
+    return {
+      passed: true,
+      message: `All ${total} comment${total === 1 ? '' : 's'} verified`,
+      entries,
+      threads: bundle.threads,
+    };
+  }
+  return {
+    passed: false,
+    message: `${failed} of ${total} comment${total === 1 ? '' : 's'} failed verification`,
+    entries,
+    threads: bundle.threads,
   };
 }
 
