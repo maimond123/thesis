@@ -107,11 +107,26 @@ export function commentDecorationExtension(
 // Helper used by main.ts to build the ThreadAnchorPreview list from a store
 // snapshot. The root comment carries the thread author's thumbprint, so we
 // look it up via listComments(threadId)[0] (sorted earliest-first by the store).
+//
+// cutoffMs (optional): hide threads whose createdAt is later than this
+// wall-clock timestamp. Used by Replay to time-scrub comments — at the
+// start of replay no threads have "existed yet"; as the scrub advances
+// past the keystroke clock where each thread was created, it appears.
+// When omitted (Editor tab + Verify panel), all threads are returned.
 export function buildAnchorPreviews(
   store: CommentStore,
   authorIndex: (thumb: string) => number,
+  cutoffMs?: number,
 ): ThreadAnchorPreview[] {
-  return store.listThreads().map((thread) => {
+  const threads = cutoffMs === undefined
+    ? store.listThreads()
+    : store.listThreads().filter((t) => {
+        const t0 = Date.parse(t.createdAt);
+        // Threads with unparseable timestamps (defensive) fall back to
+        // visible-always rather than disappearing silently.
+        return Number.isNaN(t0) || t0 <= cutoffMs;
+      });
+  return threads.map((thread) => {
     const root = store.listComments(thread.id).find((c) => c.id === thread.rootCommentId);
     const thumb = root?.authorThumbprint ?? '';
     return {

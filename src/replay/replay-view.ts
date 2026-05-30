@@ -428,7 +428,13 @@ export class ReplayView {
     }
     // Anchors move with the doc; re-resolve and push updated previews onto
     // each surface's decoration state. Cheap relative to applyUpdateV2.
-    this.refreshAllCommentDecorations();
+    // Pass THIS event's wallClock so the cutoff reflects "up to and
+    // including the just-applied event" — engine.currentIndex isn't
+    // incremented until after dispatchEvent returns, so reading the
+    // default cutoff would lag by one event (the previously-applied one).
+    const explicitCutoff = event.wallClock
+      ?? (this.proof ? Date.parse(this.proof.session.startTime) : 0);
+    this.refreshAllCommentDecorations(explicitCutoff);
   }
 
   private updateTrackStatus(surface: Surface): void {
@@ -440,6 +446,23 @@ export class ReplayView {
       : `${surface.appliedCount}/${total} applied`;
   }
 
+  // Current wall-clock cutoff for the comment scrubber. At replay index 0
+  // we use the session start time (no comments have "existed yet"); at any
+  // forward index we use the wallClock of the most recently applied event.
+  // Comments with createdAt <= cutoff are visible; later ones are hidden
+  // until the scrub advances past their creation moment. v1 events without
+  // wallClock fall through to the session startTime so the scrubber
+  // degrades to "show all" instead of "hide all".
+  private currentCommentCutoffMs(): number {
+    if (!this.proof) return 0;
+    const start = Date.parse(this.proof.session.startTime);
+    if (!this.engine || this.engine.current === 0) return start;
+    const idx = this.engine.current;
+    const evt = this.proof.events[idx - 1];
+    if (!evt) return start;
+    return evt.wallClock ?? start;
+  }
+
   // Push the comment bundle into a surface's read-only CommentStore and
   // dispatch the initial anchor previews onto the editor's decoration state.
   // Anchor positions are resolved against the surface's CURRENT Y.Doc — for
@@ -449,28 +472,35 @@ export class ReplayView {
   private seedSurfaceComments(surface: Surface, bundle: CommentBundle | undefined): void {
     if (!surface.commentStore || !bundle) return;
     surface.commentStore.load(bundle);
+    const cutoff = this.currentCommentCutoffMs();
     const previews = buildAnchorPreviews(
       surface.commentStore,
       (thumb) => this.authorIndex.get(thumb) ?? 0,
+      cutoff,
     );
     surface.view.dispatch({ effects: setThreadAnchors.of(previews) });
   }
 
   // Refresh decoration state for every surface — call whenever the surface's
   // Y.Doc has changed (an event apply, a seek-reset, etc.) so anchors re-
-  // resolve against the new doc state. Read-only and cheap.
-  private refreshAllCommentDecorations(): void {
+  // resolve against the new doc state. Read-only and cheap. cutoffMsOverride
+  // forces a specific scrubber position, used by dispatchEvent to pass the
+  // just-applied event's wallClock without relying on engine.currentIndex
+  // (which hasn't been incremented yet at that point).
+  private refreshAllCommentDecorations(cutoffMsOverride?: number): void {
     if (this.mergedSurface) {
-      this.refreshSurfaceComments(this.mergedSurface);
+      this.refreshSurfaceComments(this.mergedSurface, cutoffMsOverride);
     }
-    for (const t of this.trackSurfaces) this.refreshSurfaceComments(t);
+    for (const t of this.trackSurfaces) this.refreshSurfaceComments(t, cutoffMsOverride);
   }
 
-  private refreshSurfaceComments(surface: Surface): void {
+  private refreshSurfaceComments(surface: Surface, cutoffMsOverride?: number): void {
     if (!surface.commentStore) return;
+    const cutoff = cutoffMsOverride ?? this.currentCommentCutoffMs();
     const previews = buildAnchorPreviews(
       surface.commentStore,
       (thumb) => this.authorIndex.get(thumb) ?? 0,
+      cutoff,
     );
     surface.view.dispatch({ effects: setThreadAnchors.of(previews) });
   }
