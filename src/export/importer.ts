@@ -17,7 +17,7 @@ export function parseProofFile(json: string): ProofFile {
 
   const obj = data as Record<string, unknown>;
 
-  if (obj.version !== 1) {
+  if (obj.version !== 1 && obj.version !== 2) {
     throw new ImportError(`Unsupported version: ${obj.version}`);
   }
   if (!obj.session || typeof obj.session !== 'object') {

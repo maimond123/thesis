@@ -85,8 +85,17 @@ export interface PublicIdentitySnapshot {
 
 // ─── Proof File ────────────────────────────────────────────────────
 
+// Schema versions:
+//   v1 — events carry CodeMirror positions (from/to/inserted/deleted) only.
+//        Replay reconstructs the doc by applying those positions to a virgin
+//        text buffer. Correct for single-author sessions only; multi-author
+//        replay can diverge from what was actually on screen.
+//   v2 — events additionally carry `yjsUpdate`, the binary CRDT delta the
+//        author's edit produced. Replay applies these to a fresh Y.Doc so
+//        the merged document reconstructs exactly as Yjs computed it live.
+//        Both versions parse, verify, and replay; new sessions are stamped v2.
 export interface ProofFile {
-  version: 1;
+  version: 1 | 2;
   session: SessionMetadata;
   events: AuthoringEvent[];
   checkpoints: Checkpoint[];
