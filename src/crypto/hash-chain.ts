@@ -28,10 +28,11 @@ export async function sha256(data: string): Promise<string> {
 export async function computeEventHash(
   event: Omit<AuthoringEvent, 'hash'>
 ): Promise<string> {
-  // yjsUpdate is included so the CRDT-correct replay payload is also covered
-  // by the chain's tamper-evidence. Older events without the field hash with
-  // it as null so existing proofs remain verifiable unchanged.
-  const payload = canonicalJsonStringify({
+  // yjsUpdate is folded into the tamper-evidence ONLY when the event actually
+  // carries one (v2 chains). v1 events must hash with the original field set
+  // so already-exported proofs continue to verify byte-for-byte against the
+  // hashes their authors signed at record time.
+  const payload: Record<string, unknown> = {
     seq: event.seq,
     authorThumbprint: event.authorThumbprint,
     timestamp: event.timestamp,
@@ -41,10 +42,12 @@ export async function computeEventHash(
     inserted: event.inserted,
     deleted: event.deleted,
     cursorAfter: event.cursorAfter,
-    yjsUpdate: event.yjsUpdate ?? null,
     prevHash: event.prevHash,
-  });
-  return sha256(payload);
+  };
+  if (event.yjsUpdate !== undefined) {
+    payload.yjsUpdate = event.yjsUpdate;
+  }
+  return sha256(canonicalJsonStringify(payload));
 }
 
 export async function computeGenesisHash(
