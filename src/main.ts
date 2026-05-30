@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { createEditor } from './editor/setup';
-import { keystrokeCaptureExtension } from './editor/keystroke-plugin';
+import { captureContextExtension, consumePendingCaptureContext } from './editor/keystroke-plugin';
 import { bytesToBase64 } from './editor/yjs-bytes';
 import { mountFormatBar } from './editor/format-bar';
 import { SessionManager } from './session/session-manager';
@@ -424,49 +424,61 @@ window.setInterval(refreshTiers, 1_000);
 let setCaptureEnabled: (v: boolean) => void = () => {};
 let isCaptureEnabled: () => boolean = () => true;
 
-// Pair each local CodeMirror keystroke with the Yjs binary update it produced,
-// so the proof file can replay the exact CRDT operation instead of relying on
-// position-based diffs (which scramble during concurrent multi-author edits).
+// Pair each local CodeMirror keystroke with the Yjs binary update it produced
+// so replay can apply the CRDT delta to a fresh Y.Doc and reconstruct the
+// merged document exactly as Yjs computed it live — instead of replaying
+// position-based diffs that scramble across concurrent multi-author edits.
 //
-// Order within a single CodeMirror dispatch:
-//   1. CodeMirror dispatch begins.
-//   2. y-codemirror.next's update listener runs and forwards the change into
-//      a Y.Doc transaction → ydoc fires `updateV2` synchronously.
-//   3. Our `updateV2` listener stashes that binary update.
-//   4. Other CodeMirror update listeners run, including the keystrokeCapture
-//      below, which picks up the stash and attaches it to the RawEvent.
-//
-// updateV2 only fires once per CodeMirror transaction, so when a single
-// transaction produces multiple `iterChanges` ranges, the binary attaches to
-// the first range's RawEvent and subsequent events ride along without it
-// (already applied as part of the same Yjs operation).
-let pendingYjsUpdate: Uint8Array | null = null;
+// Within a single CodeMirror dispatch the order is:
+//   1. CodeMirror commits the local transaction; view.state is updated.
+//   2. Update listeners fire in Prec order:
+//        a. captureContextExtension (Prec.highest) stashes userEvent + agg
+//           from/to/inserted/deleted/cursorAfter for THIS transaction.
+//        b. y-codemirror.next forwards the change into Y.Text. Y.Doc commits
+//           the transaction → fires updateV2 SYNCHRONOUSLY before y-codemirror
+//           returns. The handler below reads the stashed context and ships a
+//           single signed RawEvent carrying the binary update.
+// Result: one CM transaction = one Y.Doc updateV2 = one signed event, even
+// when iterChanges produced multiple ranges. The first-iterChanges-only bug
+// from the previous wiring is gone.
 
 ydoc.on('updateV2', (update: Uint8Array, origin: unknown) => {
-  // Skip remote updates (those came from peers through the y-partykit provider).
+  // Skip remote updates — those came from peers via the y-partykit provider
+  // and live on the originating peer's signed chain.
   if (origin && origin === partyKitSync.getProvider()) return;
-  pendingYjsUpdate = update;
-});
 
-const captureExtension = keystrokeCaptureExtension((raw) => {
+  // Gated during recovery / auto-start so applying historical updates to the
+  // live Y.Doc doesn't re-sign events that already exist on disk.
   if (!isCaptureEnabled()) return;
-  if (session.state !== 'recording') {
-    // Doc changed but we aren't recording — the keystroke goes into the shared
-    // Y.Text (and any connected peers see it) but does NOT get signed into a
-    // chain. Surface a non-blocking nudge so the writer doesn't realise too
-    // late that their authorship wasn't captured.
-    showStartSessionToast();
-    pendingYjsUpdate = null;
+
+  const ctx = consumePendingCaptureContext();
+  if (!ctx) {
+    // Local updateV2 with no matching CM transaction — programmatic Y.Text
+    // edit (e.g. v1 recovery's setDocument). Nothing to sign here.
     return;
   }
-  if (pendingYjsUpdate) {
-    raw.yjsUpdate = bytesToBase64(pendingYjsUpdate);
-    pendingYjsUpdate = null;
+
+  if (session.state !== 'recording') {
+    // The doc still propagates to peers because Y.Text was mutated; we just
+    // don't sign the event onto our chain. Nudge the writer so they realise
+    // before they've lost a lot of unsigned typing.
+    showStartSessionToast();
+    return;
   }
-  session.handleEvent(raw);
+
+  session.handleEvent({
+    timestamp: ctx.timestamp,
+    type: ctx.eventType,
+    from: ctx.from,
+    to: ctx.to,
+    inserted: ctx.inserted,
+    deleted: ctx.deleted,
+    cursorAfter: ctx.cursorAfter,
+    yjsUpdate: bytesToBase64(update),
+  });
 });
 
-editorView = createEditor(editorContainer, yText, awareness, [captureExtension]);
+editorView = createEditor(editorContainer, yText, awareness, [captureContextExtension()]);
 
 // ─── Session callbacks ─────────────────────────────────────────────
 
