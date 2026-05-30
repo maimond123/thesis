@@ -9,6 +9,7 @@ import { saveSession, loadSession, clearSession } from './persistence';
 import { cloudSave, cloudLoad, cloudList } from './cloud-sync';
 import type { IdentityStore } from '../identity/identity-store';
 import { base64ToBytes } from '../editor/yjs-bytes';
+import type { CommentBundle } from '../comments/types';
 
 // 0.4.0 — first release that captures the binary Yjs update alongside each
 // signed event. Recovery + replay + verifier all branch on event shape (every
@@ -52,6 +53,11 @@ export class SessionManager {
   private persistInFlight = false;
   private _state: SessionState = 'idle';
   private getDocument: () => string = () => '';
+  // Phase 3: optional accessor for the comment bundle (threads + comments).
+  // Wired by main.ts after the CommentStore is built. saveSession + cloudSave
+  // pipe its result through to persistence; buildProofFile bakes it into
+  // the exported proof under `comments`. Stays a no-op until set.
+  private getComments: () => CommentBundle | undefined = () => undefined;
 
   public lastIdbSaveAt: number | null = null;
   public lastCloudSaveAt: number | null = null;
@@ -68,6 +74,22 @@ export class SessionManager {
   constructor(identityStore: IdentityStore, fileId: string) {
     this.identityStore = identityStore;
     this.fileId = fileId;
+  }
+
+  // Wire the comment-bundle accessor. Called by main.ts once the CommentStore
+  // exists. Separate setter (rather than constructor arg) because the
+  // SessionManager pre-dates Phase 3 and not every consumer needs comments
+  // (e.g. tests for the pure event chain).
+  setCommentsAccessor(getter: () => CommentBundle | undefined): void {
+    this.getComments = getter;
+  }
+
+  // Pair to setCommentsAccessor: how to seed the local Y.Maps from a recovered
+  // bundle so the CommentStore observes them as if peers had pushed them. Wired
+  // alongside getter; null-safe.
+  private loadComments: (bundle: CommentBundle | undefined) => void = () => {};
+  setCommentsLoader(loader: (bundle: CommentBundle | undefined) => void): void {
+    this.loadComments = loader;
   }
 
   get state(): SessionState {
@@ -153,6 +175,9 @@ export class SessionManager {
     }
 
     this.restoreLiveDocument(saved.events, saved.document, setDocument, applyYjsUpdate);
+    // Rehydrate review threads. No-op when no loader is wired or when the
+    // saved session predates comments.
+    this.loadComments(saved.comments);
 
     this.startTimers();
     this.setState('recording');
@@ -202,6 +227,7 @@ export class SessionManager {
     }
 
     this.restoreLiveDocument(saved.events, saved.document, setDocument, applyYjsUpdate);
+    this.loadComments(saved.comments);
     this.startTimers();
     this.setState('recording');
     this.onEventAdded?.(this.getTotalEventCount());
@@ -471,6 +497,7 @@ export class SessionManager {
       timestampAnchors: [...this.anchors],
       finalDocument,
       finalSignature,
+      comments: this.getComments(),
     };
   }
 
@@ -493,6 +520,7 @@ export class SessionManager {
         this.checkpoints,
         this.anchors,
         this.getDocument(),
+        this.getComments(),
       );
       this.lastCloudSaveCount = currentCount;
       this.lastCloudSaveAt = Date.now();
@@ -517,6 +545,7 @@ export class SessionManager {
         this.checkpoints,
         this.anchors,
         this.getDocument(),
+        this.getComments(),
       );
       this.lastPersistedCount = this.getTotalEventCount();
       this.lastIdbSaveAt = Date.now();

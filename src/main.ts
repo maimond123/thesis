@@ -121,6 +121,17 @@ let replayView: ReplayView;
 // Built after the editor view exists so the compose pill has a CM view to
 // position itself against, but the store itself depends only on the Y.Doc.
 const commentStore = new CommentStore(ydoc, yText, identityStore);
+
+// Wire the SessionManager <-> CommentStore bridge:
+//   * getComments piped into saveSession/cloudSave/buildProofFile so threads
+//     + replies snapshot alongside the keystroke chain
+//   * loadComments called by recover/recoverFromCloud to rehydrate the
+//     Y.Maps from a saved bundle on a fresh tab
+session.setCommentsAccessor(() => {
+  const snap = commentStore.snapshot();
+  return snap.threads.length === 0 && snap.comments.length === 0 ? undefined : snap;
+});
+session.setCommentsLoader((bundle) => { if (bundle) commentStore.load(bundle); });
 // Stable per-author colour for comment underlines. Reuses the same palette
 // the Replay author marks use; index by first appearance among comment
 // authors (so the first author to comment is cm-author-0 etc.).

@@ -4,6 +4,7 @@ import {
   verifyProof,
   type VerificationResult,
   type AuthoringActivity,
+  type CommentsVerificationSummary,
   DELAY_BUCKETS,
   formatDuration,
 } from './verifier';
@@ -172,6 +173,13 @@ export class VerifyUI {
     this.addCheck('info', 'Authoring activity', lines.join('\n'));
     this.renderActivityProfile(aa);
 
+    // Comments section — render only when the proof has any. Each comment
+    // shows its author, body, and per-signature pass/fail. A tampered
+    // body flags exactly that comment.
+    if (checks.comments.details !== null) {
+      this.renderCommentsSection(checks.comments, proof);
+    }
+
     // Session info
     this.addCheck(
       'info',
@@ -271,6 +279,61 @@ export class VerifyUI {
       card.appendChild(timeline);
     }
 
+    this.resultsEl.appendChild(card);
+  }
+
+  private renderCommentsSection(summary: CommentsVerificationSummary, proof: ProofFile): void {
+    const card = document.createElement('div');
+    card.className = 'humanness-card';
+    const title = document.createElement('div');
+    title.className = 'humanness-section-title';
+    const allOk = summary.failed === 0;
+    title.textContent = allOk
+      ? `Comments (${summary.passed} verified)`
+      : `Comments (${summary.passed} verified, ${summary.failed} FAILED)`;
+    card.appendChild(title);
+
+    if (!proof.comments) { this.resultsEl.appendChild(card); return; }
+
+    // Group by thread for display. Threads ordered by createdAt.
+    const threads = [...proof.comments.threads].sort((a, b) =>
+      a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0,
+    );
+    const commentResultById = new Map(summary.details?.map((d) => [d.comment.id, d]) ?? []);
+
+    for (const t of threads) {
+      const block = document.createElement('div');
+      block.className = `verify-comment-thread${t.resolved ? ' resolved' : ''}`;
+
+      const head = document.createElement('div');
+      head.className = 'verify-comment-head';
+      head.innerHTML = `
+        <span>Thread ${t.id.slice(0, 8)}</span>
+        <span class="verify-comment-state">${t.resolved ? 'resolved' : 'open'}</span>
+      `;
+      block.appendChild(head);
+
+      const threadComments = proof.comments.comments
+        .filter((c) => c.threadId === t.id)
+        .sort((a, b) => a.createdAt < b.createdAt ? -1 : 1);
+      for (const c of threadComments) {
+        const res = commentResultById.get(c.id);
+        const ok = res?.valid ?? false;
+        const ind = document.createElement('div');
+        ind.className = `verify-comment-row ${ok ? 'pass' : 'fail'}`;
+        const timestamp = escapeHtml(new Date(c.createdAt).toLocaleString());
+        const reason = res?.reason ? ` — ${escapeHtml(res.reason)}` : '';
+        ind.innerHTML = `
+          <span class="verify-comment-icon">${ok ? '✓' : '✗'}</span>
+          <div>
+            <div class="verify-comment-meta"><strong>${escapeHtml(c.authorHandle)}</strong> · ${timestamp}${reason}</div>
+            <div class="verify-comment-body">${escapeHtml(c.body)}</div>
+          </div>
+        `;
+        block.appendChild(ind);
+      }
+      card.appendChild(block);
+    }
     this.resultsEl.appendChild(card);
   }
 }

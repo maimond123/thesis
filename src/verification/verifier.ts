@@ -1,10 +1,11 @@
 import * as Y from 'yjs';
-import type { ProofFile, AuthoringEvent, PublicIdentitySnapshot } from '../types';
+import type { ProofFile, AuthoringEvent, PublicIdentitySnapshot, Comment } from '../types';
 import {
   validateChain, sha256, canonicalJsonStringify, deriveChainGenesis,
 } from '../crypto/hash-chain';
 import { verifySignature } from '../crypto/signing';
 import { base64ToBytes } from '../editor/yjs-bytes';
+import { verifyComment } from '../comments/comment-signing';
 
 // ─── Result types ──────────────────────────────────────────────────
 
@@ -82,6 +83,22 @@ export interface AuthoringActivity {
   authors: AuthorActivity[];
 }
 
+// Per-comment verification result. Drives the Verify panel's Comments
+// section + an aggregate pass/fail check in the overall result.
+export interface CommentVerificationResult {
+  comment: Comment;
+  valid: boolean;
+  reason?: string;     // present when valid === false
+}
+
+export interface CommentsVerificationSummary {
+  total: number;
+  passed: number;
+  failed: number;
+  // null when proof has no comments; the Verify UI hides the section then.
+  details: CommentVerificationResult[] | null;
+}
+
 export interface VerificationResult {
   valid: boolean;
   checks: {
@@ -92,6 +109,7 @@ export interface VerificationResult {
     finalSignature: CheckResult;
     authoringActivity: AuthoringActivity;
     roster: CheckResult;
+    comments: CommentsVerificationSummary;
   };
 }
 
@@ -123,14 +141,17 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
   const finalSigCheck = await verifyFinalSignature(proof);
   const rosterCheck = verifyRoster(proof);
   const authoringActivity = analyzeAuthoringActivity(proof.events);
+  const comments = await verifyComments(proof);
 
+  const commentsPass = comments.total === 0 || comments.failed === 0;
   const valid =
     genesisCheck.passed &&
     chainCheck.passed &&
     checkpointCheck.passed &&
     docCheck.passed &&
     finalSigCheck.passed &&
-    rosterCheck.passed;
+    rosterCheck.passed &&
+    commentsPass;
 
   return {
     valid,
@@ -142,8 +163,38 @@ export async function verifyProof(proof: ProofFile): Promise<VerificationResult>
       finalSignature: finalSigCheck,
       authoringActivity,
       roster: rosterCheck,
+      comments,
     },
   };
+}
+
+// Verify every comment's ECDSA signature against the author's pubkey in the
+// roster. Comments whose author isn't in the roster fail with a clear reason
+// (typed text says alice authored it, but no alice in roster → forged or
+// roster incomplete). Each comment is its own authorship claim — no chain
+// linkage between comments, so a single bad signature flags exactly that
+// comment, not the whole batch.
+async function verifyComments(proof: ProofFile): Promise<CommentsVerificationSummary> {
+  const bundle = proof.comments;
+  if (!bundle || bundle.comments.length === 0) {
+    return { total: 0, passed: 0, failed: 0, details: null };
+  }
+  const roster = new Map<string, JsonWebKey>();
+  for (const a of proof.session.authors ?? []) {
+    roster.set(a.thumbprint, a.publicKey);
+  }
+  const details: CommentVerificationResult[] = [];
+  for (const c of bundle.comments) {
+    const pk = roster.get(c.authorThumbprint);
+    if (!pk) {
+      details.push({ comment: c, valid: false, reason: 'Author not in roster' });
+      continue;
+    }
+    const ok = await verifyComment(c, pk);
+    details.push({ comment: c, valid: ok, reason: ok ? undefined : 'Signature does not match' });
+  }
+  const failed = details.filter((d) => !d.valid).length;
+  return { total: details.length, passed: details.length - failed, failed, details };
 }
 
 // ─── Genesis hash ──────────────────────────────────────────────────

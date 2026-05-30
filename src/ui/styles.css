@@ -1482,3 +1482,61 @@ html, body {
   letter-spacing: 0.4px;
   text-transform: uppercase;
 }
+
+/* Verify tab Comments section rows. Each row is one comment with a pass/fail
+   icon, author/handle/time/reason, then the body underneath. */
+.verify-comment-thread {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--bg-paper);
+}
+
+.verify-comment-thread.resolved { opacity: 0.75; }
+
+.verify-comment-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-bottom: 6px;
+}
+
+.verify-comment-state {
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.verify-comment-row {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.verify-comment-row:first-of-type { border-top: none; }
+
+.verify-comment-row.pass .verify-comment-icon { color: var(--success); }
+.verify-comment-row.fail .verify-comment-icon { color: var(--error); }
+
+.verify-comment-icon {
+  font-weight: 700;
+  width: 14px;
+  text-align: center;
+}
+
+.verify-comment-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.verify-comment-body {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
