@@ -18,6 +18,7 @@ import { FileSidebar } from './files/sidebar';
 import { CommentStore } from './comments/comment-store';
 import { ComposeUI } from './comments/compose-ui';
 import { CommentSidePanel } from './comments/side-panel';
+import { commentDecorationsExtension } from './comments/decorations';
 import type { ProofFile } from './types';
 
 // File routing: the document being edited is identified by the URL hash. So
@@ -503,7 +504,15 @@ const captureExtension = keystrokeCaptureExtension((raw) => {
   session.handleEvent(raw);
 });
 
-editorView = createEditor(editorContainer, yText, awareness, [captureExtension, composeUI.extension()]);
+const commentDecoExt = commentDecorationsExtension({
+  commentStore,
+  onThreadClick: (threadId) => {
+    commentSidePanel.open(threadId);
+    commentsBtn.classList.add('btn-primary');
+  },
+});
+
+editorView = createEditor(editorContainer, yText, awareness, [captureExtension, composeUI.extension(), commentDecoExt]);
 
 // Expose for console-driven verification during development.
 (window as unknown as { __thesisComments?: CommentStore }).__thesisComments = commentStore;

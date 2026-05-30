@@ -1413,6 +1413,42 @@ html, body {
 
 .comments-divider:hover { color: var(--accent); }
 
+/* ─── Comment decorations (inline highlight + dot) ────────────── */
+
+.cm-comment-mark {
+  background: rgba(229, 176, 72, 0.18);
+  border-bottom: 2px solid rgba(229, 176, 72, 0.7);
+  cursor: pointer;
+}
+
+[data-theme="light"] .cm-comment-mark {
+  background: rgba(176, 112, 20, 0.16);
+  border-bottom-color: rgba(176, 112, 20, 0.7);
+}
+
+.cm-comment-mark:hover { background: rgba(229, 176, 72, 0.30); }
+
+.cm-comment-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 2px 1px 4px;
+  vertical-align: middle;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 0 1px var(--bg-paper);
+}
+
+.cm-comment-dot:hover { transform: scale(1.25); }
+
+.cm-comment-dot-0 { background: #4fc3f7; }
+.cm-comment-dot-1 { background: #ffa726; }
+.cm-comment-dot-2 { background: #aed581; }
+.cm-comment-dot-3 { background: #f06292; }
+.cm-comment-dot-4 { background: #ba68c8; }
+.cm-comment-dot-5 { background: #ffd54f; }
+
 /* ─── Comment pill + compose modal ───────────────────────────── */
 
 .comment-pill {
